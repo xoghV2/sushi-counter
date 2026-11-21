@@ -1,0 +1,2816 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 모바일 화면 너비에 딱 맞게 표시하고 불필요한 확대/가로 스크롤 방지 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>스시카운터 v2 (회전초밥 접시 자동 계산기)</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 깔끔한 숫자와 텍스트를 위한 Inter + 시스템 한글 고딕 폰트 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: [
+              'Inter',
+              '-apple-system',
+              'BlinkMacSystemFont',
+              '"Apple SD Gothic Neo"',
+              '"Pretendard"',
+              '"Malgun Gothic"',
+              'sans-serif'
+            ]
+          },
+          colors: {
+            cream: '#FAF8F5',
+            sand: '#F2EDE6',
+            charcoal: '#1F1D1B',
+            salmon: {
+              DEFAULT: '#E85D4A',
+              dark: '#D14A38',
+              soft: '#FEF1EF'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    /* 금액과 개수가 바뀔 때 자릿수가 흔들리지 않도록 고정폭 숫자 사용 */
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 접시 색상 선택 input을 깔끔한 원형 뱃지처럼 스타일링 */
+    .plate-color-input {
+      -webkit-appearance: none;
+      appearance: none;
+      border: none;
+      padding: 0;
+      background: transparent;
+      cursor: pointer;
+    }
+    .plate-color-input::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+    .plate-color-input::-webkit-color-swatch {
+      border: 2px solid rgba(31, 29, 27, 0.16);
+      border-radius: 9999px;
+      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.65);
+    }
+    .plate-color-input::-moz-color-swatch {
+      border: 2px solid rgba(31, 29, 27, 0.16);
+      border-radius: 9999px;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+  </style>
+</head>
+<body class="bg-cream text-charcoal antialiased min-h-screen pb-32 overflow-x-hidden">
+
+  <!-- =====================================================================
+       상단 고정 헤더 (Sticky Header)
+       - 앱 제목, 새 식사 초기화 버튼(단골 가게는 유지), API 키 설정(⚙️) 버튼
+  ===================================================================== -->
+  <header class="sticky top-0 z-30 bg-cream/95 backdrop-blur-md border-b border-stone-200/80">
+    <div class="w-full max-w-[480px] mx-auto px-3.5 py-2.5 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-[#E85D4A] to-[#F3896B] flex items-center justify-center text-lg shadow-sm shrink-0" aria-hidden="true">
+          🍣
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5">
+            <h1 class="text-base font-extrabold tracking-tight text-charcoal truncate">스시카운터</h1>
+            <span class="px-1.5 py-0.5 rounded-md bg-salmon-soft text-salmon text-[10px] font-extrabold leading-none shrink-0">v2</span>
+          </div>
+          <p id="headerStatusSub" class="text-[11px] text-stone-500 truncate">
+            메뉴판 학습 · 6~7장 분할 촬영
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          id="openResetModalBtn"
+          class="px-2.5 py-2 rounded-xl bg-white border border-stone-200 text-[11px] font-bold text-stone-600 hover:text-salmon hover:border-salmon/40 hover:bg-salmon-soft/50 active:scale-95 transition"
+        >
+          새 식사 초기화
+        </button>
+        <button
+          type="button"
+          id="openSettingsModalBtn"
+          class="relative w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-base hover:bg-sand active:scale-95 transition"
+          aria-label="API 키 설정 열기"
+          title="API 키 설정"
+        >
+          <span aria-hidden="true">⚙️</span>
+          <!-- 사용자 API 키가 등록되어 있을 때 초록 점 표시 -->
+          <span id="apiKeyActiveDot" class="hidden absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white"></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 메인 모바일 컨테이너 (최대 너비 480px 중앙 정렬) -->
+  <main class="w-full max-w-[480px] mx-auto px-3.5 pt-3.5 space-y-4">
+
+    <!-- 3단계 빠른 이동 탭 -->
+    <nav class="grid grid-cols-3 gap-2" aria-label="단계 바로가기">
+      <a href="#step-1" class="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-white border border-stone-200/90 text-xs font-semibold text-stone-600 hover:border-salmon hover:text-salmon transition">
+        <span class="w-4 h-4 rounded-full bg-sand text-charcoal text-[10px] font-extrabold inline-flex items-center justify-center">1</span>
+        메뉴판·단골
+      </a>
+      <a href="#step-2" class="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-white border border-stone-200/90 text-xs font-semibold text-stone-600 hover:border-salmon hover:text-salmon transition">
+        <span class="w-4 h-4 rounded-full bg-sand text-charcoal text-[10px] font-extrabold inline-flex items-center justify-center">2</span>
+        분할 촬영
+      </a>
+      <a href="#step-3" class="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-white border border-stone-200/90 text-xs font-semibold text-stone-600 hover:border-salmon hover:text-salmon transition">
+        <span class="w-4 h-4 rounded-full bg-sand text-charcoal text-[10px] font-extrabold inline-flex items-center justify-center">3</span>
+        계산·정산
+      </a>
+    </nav>
+
+    <!-- ===================================================================
+         상단 전역 오류 배너 (API 오류·JSON 파싱 실패 시 닫기 가능한 한국어 안내)
+    =================================================================== -->
+    <div
+      id="globalErrorBanner"
+      role="alert"
+      class="hidden p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-800 shadow-sm"
+    >
+      <div class="flex items-start justify-between gap-2.5">
+        <div class="flex items-start gap-2 text-xs leading-relaxed">
+          <span class="text-base leading-none mt-0.5 shrink-0" aria-hidden="true">⚠️</span>
+          <div>
+            <p id="globalErrorTitle" class="font-bold text-red-900 mb-0.5">분석 중 문제가 발생했어요</p>
+            <p id="globalErrorMessage" class="text-red-700"></p>
+            <p class="text-[11px] text-red-600/90 mt-1">
+              💡 사진이 흔들리지 않았는지 확인 후 다시 시도하거나, 아래 입력란에서 직접 수정해 계속 사용할 수 있어요.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          id="closeGlobalErrorBtn"
+          class="shrink-0 w-7 h-7 rounded-lg text-red-500 hover:bg-red-100 inline-flex items-center justify-center font-bold text-base"
+          aria-label="오류 안내 닫기"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+
+    <!-- 세션 자동 복구 안내 미니 칩 (새로고침 후 이전 식사가 복원되었을 때 표시) -->
+    <div
+      id="sessionRestoredBanner"
+      class="hidden items-center justify-between gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs"
+    >
+      <span class="font-medium">💾 이전 식사 기록을 자동으로 이어서 불러왔어요.</span>
+      <button
+        type="button"
+        id="closeRestoredBannerBtn"
+        class="text-emerald-700 font-bold px-1.5 py-0.5 rounded-md hover:bg-emerald-100"
+        aria-label="안내 닫기"
+      >
+        확인
+      </button>
+    </div>
+
+    <!-- ===================================================================
+         STEP 1: 메뉴판 등록 & 단골 가게 저장소
+    =================================================================== -->
+    <section id="step-1" class="bg-white rounded-2xl border border-stone-200/80 shadow-sm p-4">
+      <div class="mb-3.5">
+        <span class="inline-block text-[10px] font-extrabold tracking-wider text-salmon bg-salmon-soft px-2 py-0.5 rounded-md mb-1">
+          STEP 1
+        </span>
+        <h2 class="text-base font-extrabold text-charcoal">메뉴판 등록 &amp; 단골 가게</h2>
+        <p class="text-xs text-stone-500 mt-0.5">
+          실제 접시가 나온 메뉴판을 찍거나 저장해 둔 단골 가게를 탭해서 바로 시작하세요.
+        </p>
+      </div>
+
+      <!-- 단골 가게 저장 / 불러오기 패널 -->
+      <div class="rounded-xl bg-cream border border-stone-200/90 p-3 mb-3.5">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <span class="text-xs font-extrabold text-charcoal flex items-center gap-1">
+            <span aria-hidden="true">⭐</span> 단골 가게 저장 / 불러오기
+          </span>
+          <span id="savedStoreCountBadge" class="text-[11px] font-semibold text-stone-500">0개 저장됨</span>
+        </div>
+
+        <!-- 가게 이름 입력 + 가게 저장 버튼 -->
+        <div class="flex items-center gap-1.5 mb-2.5">
+          <input
+            type="text"
+            id="storeNameInput"
+            placeholder="가게 이름 (예: 갓덴스시, 스시로)"
+            autocomplete="off"
+            class="flex-1 min-w-0 h-10 px-3 rounded-xl border border-stone-200 bg-white text-xs font-medium text-charcoal focus:outline-none focus:border-salmon"
+          />
+          <button
+            type="button"
+            id="saveStoreBtn"
+            class="shrink-0 h-10 px-3.5 rounded-xl bg-charcoal hover:bg-stone-800 text-white text-xs font-bold active:scale-95 transition"
+          >
+            가게 저장
+          </button>
+        </div>
+
+        <!-- 저장된 단골 가게 카드/칩 목록 -->
+        <div id="savedStoresContainer" class="flex flex-wrap gap-1.5"></div>
+      </div>
+
+      <!-- 메뉴판 사진 업로드 + 샘플 불러오기 -->
+      <div class="space-y-2 mb-3.5">
+        <!-- capture 속성을 생략해 모바일에서 카메라 촬영과 앨범 선택을 모두 지원 -->
+        <label
+          for="menuPhotoInput"
+          class="w-full min-h-[46px] px-4 py-2.5 rounded-xl bg-salmon hover:bg-salmon-dark text-white text-sm font-bold flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-[0.98] transition"
+        >
+          <span aria-hidden="true">📷</span>
+          <span>메뉴판 사진 찍기 / 앨범에서 올리기</span>
+        </label>
+        <input
+          type="file"
+          id="menuPhotoInput"
+          accept="image/*"
+          class="hidden"
+        />
+
+        <div class="flex justify-end">
+          <button
+            type="button"
+            id="loadSampleMenuBtn"
+            class="px-3 py-1.5 rounded-full bg-sand hover:bg-stone-200/80 border border-stone-200 text-xs font-semibold text-stone-700 active:scale-95 transition"
+          >
+            📋 샘플 메뉴판 불러오기
+          </button>
+        </div>
+      </div>
+
+      <!-- 기준 메뉴판 썸네일 미리보기 -->
+      <div
+        id="menuPreviewBox"
+        class="hidden items-center gap-3 p-2.5 mb-3 rounded-xl bg-sand/70 border border-stone-200/80"
+      >
+        <img
+          id="menuThumbImg"
+          src=""
+          alt="저장된 기준 메뉴판"
+          class="w-14 h-14 rounded-lg object-cover border border-stone-300 shrink-0 bg-stone-200"
+        />
+        <div class="text-xs text-stone-600 leading-snug min-w-0">
+          <p class="font-bold text-charcoal mb-0.5">기준 메뉴판 사진 준비 완료</p>
+          <p class="text-[11px]">2단계 접시 촬영 시 이 사진을 AI에게 함께 보내 실제 접시 무늬와 색을 직접 비교해요.</p>
+        </div>
+      </div>
+
+      <!-- 메뉴판 특이사항 (부가세 별도, 2장 합산 등) -->
+      <div
+        id="menuNotesBox"
+        class="hidden p-2.5 mb-3 rounded-xl bg-stone-50 border border-stone-200 text-xs text-stone-600 leading-relaxed"
+      ></div>
+
+      <!-- 편집 가능한 접시별 가격표 리스트 -->
+      <div id="plateListContainer" class="space-y-2 mb-3"></div>
+
+      <!-- 접시 수동 추가 버튼 -->
+      <button
+        type="button"
+        id="addPlateBtn"
+        class="w-full min-h-[42px] py-2 px-3 rounded-xl border border-dashed border-stone-300 text-xs font-bold text-stone-600 hover:border-salmon hover:text-salmon hover:bg-salmon-soft/60 active:scale-[0.99] transition"
+      >
+        + 접시 종류 추가
+      </button>
+    </section>
+
+    <!-- ===================================================================
+         STEP 2: 6~7장 분할 촬영 & 실시간 목표 예산 게이지
+    =================================================================== -->
+    <section id="step-2" class="bg-white rounded-2xl border border-stone-200/80 shadow-sm p-4">
+      <div class="mb-3.5">
+        <span class="inline-block text-[10px] font-extrabold tracking-wider text-salmon bg-salmon-soft px-2 py-0.5 rounded-md mb-1">
+          STEP 2
+        </span>
+        <h2 class="text-base font-extrabold text-charcoal">6~7장 분할 촬영 &amp; 예산 체크</h2>
+        <p class="text-xs text-stone-500 mt-0.5">
+          접시가 6~7장 쌓일 때마다 찰칵 찍어 누적하면 인식률도 높고 예산 관리도 쉬워요.
+        </p>
+      </div>
+
+      <!-- 목표 예산 설정 및 실시간 게이지 위젯 -->
+      <div class="rounded-xl bg-cream border border-stone-200/90 p-3 mb-3.5">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <label for="budgetInput" class="text-xs font-extrabold text-charcoal flex items-center gap-1">
+            <span aria-hidden="true">🎯</span> 목표 예산 설정
+          </label>
+          <span id="budgetStatusText" class="text-[11px] font-bold text-stone-500 tabular-nums">
+            설정 안 함
+          </span>
+        </div>
+
+        <div class="flex items-center gap-2 mb-2">
+          <div class="relative flex-1">
+            <input
+              type="number"
+              id="budgetInput"
+              placeholder="목표 금액 입력 (예: 30000)"
+              min="0"
+              step="1000"
+              class="w-full h-9 pl-3 pr-7 rounded-xl border border-stone-200 bg-white text-xs font-bold text-charcoal tabular-nums focus:outline-none focus:border-salmon"
+            />
+            <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-stone-400 pointer-events-none">원</span>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button type="button" class="budget-chip px-2 py-1.5 rounded-lg bg-white border border-stone-200 hover:border-salmon text-[11px] font-bold text-stone-700 active:scale-95 transition" data-add="20000">+2만</button>
+            <button type="button" class="budget-chip px-2 py-1.5 rounded-lg bg-white border border-stone-200 hover:border-salmon text-[11px] font-bold text-stone-700 active:scale-95 transition" data-add="30000">+3만</button>
+            <button type="button" class="budget-chip px-2 py-1.5 rounded-lg bg-white border border-stone-200 hover:border-salmon text-[11px] font-bold text-stone-700 active:scale-95 transition" data-add="50000">+5만</button>
+            <button type="button" id="clearBudgetBtn" class="px-2 py-1.5 rounded-lg bg-sand hover:bg-stone-200 text-[11px] font-bold text-stone-600 active:scale-95 transition">해제</button>
+          </div>
+        </div>
+
+        <!-- 예산 진행률 바 (80% 미만 초록 -> 80~100% 주황 -> 초과 코랄 레드) -->
+        <div id="budgetBarWrap" class="hidden pt-1">
+          <div class="w-full h-2.5 rounded-full bg-stone-200 overflow-hidden">
+            <div
+              id="budgetProgressBar"
+              class="h-full rounded-full bg-emerald-500 transition-all duration-300"
+              style="width: 0%"
+            ></div>
+          </div>
+          <div class="flex items-center justify-between mt-1.5 text-[11px] tabular-nums">
+            <span id="budgetPercentLabel" class="font-bold text-emerald-700">0% 사용</span>
+            <span id="budgetRemainLabel" class="font-bold text-stone-700"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 시각적 촬영 가이드 카드 (인라인 SVG 일러스트 3컷) -->
+      <div class="rounded-xl bg-amber-50/75 border border-amber-200/90 p-3 mb-3.5">
+        <p class="text-[11px] font-extrabold text-amber-900 mb-2">📸 인식률을 확 올리는 3가지 촬영 팁</p>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <!-- 팁 1: 6~7장 이하 -->
+          <div class="rounded-lg bg-white/85 border border-amber-200/70 p-2 flex flex-col items-center">
+            <svg viewBox="0 0 64 48" class="w-14 h-10 mb-1" aria-hidden="true">
+              <ellipse cx="32" cy="40" rx="20" ry="4.5" fill="#E85D4A" stroke="#1F1D1B" stroke-width="1.2"/>
+              <ellipse cx="32" cy="34" rx="20" ry="4.5" fill="#FACC15" stroke="#1F1D1B" stroke-width="1.2"/>
+              <ellipse cx="32" cy="28" rx="20" ry="4.5" fill="#60A5FA" stroke="#1F1D1B" stroke-width="1.2"/>
+              <ellipse cx="32" cy="22" rx="20" ry="4.5" fill="#4ADE80" stroke="#1F1D1B" stroke-width="1.2"/>
+              <ellipse cx="32" cy="16" rx="20" ry="4.5" fill="#FDE68A" stroke="#1F1D1B" stroke-width="1.2"/>
+              <ellipse cx="32" cy="10" rx="20" ry="4.5" fill="#FFFFFF" stroke="#1F1D1B" stroke-width="1.2"/>
+            </svg>
+            <span class="text-[10px] font-bold text-charcoal leading-tight">1더미<br />6~7장 이하</span>
+          </div>
+
+          <!-- 팁 2: 45도 위에서 촬영 -->
+          <div class="rounded-lg bg-white/85 border border-amber-200/70 p-2 flex flex-col items-center">
+            <svg viewBox="0 0 64 48" class="w-14 h-10 mb-1" aria-hidden="true">
+              <!-- 접시 더미 -->
+              <ellipse cx="42" cy="38" rx="14" ry="3.8" fill="#FACC15" stroke="#1F1D1B" stroke-width="1.2"/>
+              <ellipse cx="42" cy="32" rx="14" ry="3.8" fill="#E85D4A" stroke="#1F1D1B" stroke-width="1.2"/>
+              <ellipse cx="42" cy="26" rx="14" ry="3.8" fill="#86EFAC" stroke="#1F1D1B" stroke-width="1.2"/>
+              <!-- 45도 카메라 -->
+              <g transform="translate(8,6) rotate(35)">
+                <rect x="0" y="3" width="16" height="11" rx="2.5" fill="#1F1D1B"/>
+                <circle cx="8" cy="8.5" r="3" fill="#FAF8F5"/>
+              </g>
+              <!-- 시선 점선 -->
+              <line x1="21" y1="17" x2="36" y2="25" stroke="#E85D4A" stroke-width="1.6" stroke-dasharray="2.5 2"/>
+              <text x="8" y="39" font-size="9" font-weight="800" fill="#B45309">45°</text>
+            </svg>
+            <span class="text-[10px] font-bold text-charcoal leading-tight">윗면 보이게<br />45° 위에서</span>
+          </div>
+
+          <!-- 팁 3: 찍은 접시는 옆으로 치우기 -->
+          <div class="rounded-lg bg-white/85 border border-amber-200/70 p-2 flex flex-col items-center">
+            <svg viewBox="0 0 64 48" class="w-14 h-10 mb-1" aria-hidden="true">
+              <!-- 찍은 접시(흐리게) -->
+              <ellipse cx="16" cy="36" rx="11" ry="3.5" fill="#D6D3D1" stroke="#78716C" stroke-width="1"/>
+              <ellipse cx="16" cy="30" rx="11" ry="3.5" fill="#E7E5E4" stroke="#78716C" stroke-width="1"/>
+              <path d="M12 21 L15 24 L21 17" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <!-- 옆으로 이동 화살표 -->
+              <path d="M29 31 L39 31 M36 27 L40 31 L36 35" fill="none" stroke="#E85D4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <!-- 새 접시 -->
+              <ellipse cx="50" cy="36" rx="10" ry="3.5" fill="#FACC15" stroke="#1F1D1B" stroke-width="1.2"/>
+              <ellipse cx="50" cy="30" rx="10" ry="3.5" fill="#E85D4A" stroke="#1F1D1B" stroke-width="1.2"/>
+            </svg>
+            <span class="text-[10px] font-bold text-charcoal leading-tight">찍은 접시는<br />옆으로 치우기</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 빈 접시 촬영 버튼 + API 없는 테스트용 버튼 -->
+      <div class="space-y-2 mb-4">
+        <label
+          for="platePhotoInput"
+          class="w-full min-h-[46px] px-4 py-2.5 rounded-xl bg-salmon hover:bg-salmon-dark text-white text-sm font-bold flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-[0.98] transition"
+        >
+          <span aria-hidden="true">📸</span>
+          <span>접시 사진 찍기 / 앨범에서 올리기</span>
+        </label>
+        <input
+          type="file"
+          id="platePhotoInput"
+          accept="image/*"
+          class="hidden"
+        />
+
+        <div class="flex justify-end">
+          <button
+            type="button"
+            id="mockScanBtn"
+            class="px-3 py-1.5 rounded-full bg-sand hover:bg-stone-200/80 border border-stone-200 text-xs font-semibold text-stone-700 active:scale-95 transition"
+          >
+            🧪 테스트용 6장 추가
+          </button>
+        </div>
+      </div>
+
+      <!-- 회차별 스캔 기록 리스트 (scanHistory) -->
+      <div id="scanHistoryContainer" class="space-y-3"></div>
+    </section>
+
+    <!-- ===================================================================
+         STEP 3: 최종 합산 계산서, 1/N 더치페이 & 카톡 정산 복사
+    =================================================================== -->
+    <section id="step-3" class="bg-white rounded-2xl border border-stone-200/80 shadow-sm p-4">
+      <div class="mb-3.5">
+        <span class="inline-block text-[10px] font-extrabold tracking-wider text-salmon bg-salmon-soft px-2 py-0.5 rounded-md mb-1">
+          STEP 3
+        </span>
+        <h2 class="text-base font-extrabold text-charcoal">최종 계산서 &amp; 1/N 더치페이</h2>
+        <p class="text-xs text-stone-500 mt-0.5">
+          모든 회차의 접시를 정확히 합산하고, 인원수별 정산과 카톡 복사까지 한 번에 끝내요.
+        </p>
+      </div>
+
+      <!-- 색상별 합산 테이블 -->
+      <div id="receiptTableContainer" class="mb-4"></div>
+
+      <hr class="border-stone-200 my-4" />
+
+      <!-- 사이드 메뉴 · 특수 접시 추가 -->
+      <div class="mb-4">
+        <h3 class="text-sm font-bold text-charcoal mb-2">사이드 메뉴 · 특수 접시 추가</h3>
+
+        <div class="flex flex-wrap gap-1.5 mb-2.5">
+          <button type="button" class="quick-side-chip px-2.5 py-1 rounded-full bg-sand hover:bg-stone-200 text-[11px] font-semibold text-stone-700 transition" data-name="사각 특수 접시" data-price="7500">+ 사각 특수 접시</button>
+          <button type="button" class="quick-side-chip px-2.5 py-1 rounded-full bg-sand hover:bg-stone-200 text-[11px] font-semibold text-stone-700 transition" data-name="우동" data-price="4500">+ 우동</button>
+          <button type="button" class="quick-side-chip px-2.5 py-1 rounded-full bg-sand hover:bg-stone-200 text-[11px] font-semibold text-stone-700 transition" data-name="생맥주" data-price="5000">+ 생맥주</button>
+          <button type="button" class="quick-side-chip px-2.5 py-1 rounded-full bg-sand hover:bg-stone-200 text-[11px] font-semibold text-stone-700 transition" data-name="음료수" data-price="2000">+ 음료수</button>
+        </div>
+
+        <form id="sideItemForm" class="grid grid-cols-[1fr_98px_56px] gap-1.5 items-center">
+          <input
+            type="text"
+            id="sideNameInput"
+            placeholder="항목명 (예: 우동, 사각접시)"
+            autocomplete="off"
+            class="w-full h-10 px-2.5 rounded-xl border border-stone-200 bg-cream text-xs text-charcoal focus:bg-white focus:outline-none focus:border-salmon"
+          />
+          <div class="relative">
+            <input
+              type="number"
+              id="sidePriceInput"
+              placeholder="금액"
+              min="0"
+              step="100"
+              class="w-full h-10 pl-2 pr-6 rounded-xl border border-stone-200 bg-cream text-xs font-bold text-right text-charcoal tabular-nums focus:bg-white focus:outline-none focus:border-salmon"
+            />
+            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-stone-400 pointer-events-none">원</span>
+          </div>
+          <button
+            type="submit"
+            class="h-10 rounded-xl bg-charcoal hover:bg-stone-800 text-white text-xs font-bold active:scale-95 transition"
+          >
+            추가
+          </button>
+        </form>
+
+        <div id="sideItemsContainer" class="mt-2.5 space-y-1.5"></div>
+      </div>
+
+      <!-- 1/N 더치페이 계산 카드 -->
+      <div class="rounded-2xl bg-cream border border-stone-200/90 p-3.5 mb-4">
+        <div class="flex items-center justify-between gap-2 mb-2.5">
+          <div>
+            <h3 class="text-sm font-extrabold text-charcoal flex items-center gap-1.5">
+              <span aria-hidden="true">👥</span> 1/N 더치페이
+            </h3>
+            <p class="text-[11px] text-stone-500">같이 먹은 인원수를 선택하세요 (1~20명)</p>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              id="splitMinusBtn"
+              class="w-9 h-9 rounded-xl bg-white border border-stone-200 hover:bg-sand text-charcoal font-extrabold text-base inline-flex items-center justify-center active:scale-90 transition"
+              aria-label="인원 1명 줄이기"
+            >
+              −
+            </button>
+            <span id="splitCountDisplay" class="w-11 text-center text-sm font-extrabold text-charcoal tabular-nums">1명</span>
+            <button
+              type="button"
+              id="splitPlusBtn"
+              class="w-9 h-9 rounded-xl bg-white border border-stone-200 hover:bg-sand text-charcoal font-extrabold text-base inline-flex items-center justify-center active:scale-90 transition"
+              aria-label="인원 1명 늘리기"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        <div class="rounded-xl bg-white border border-stone-200/80 px-3.5 py-2.5 flex items-baseline justify-between gap-2">
+          <span class="text-xs font-bold text-stone-600">1인당 결제 금액</span>
+          <div class="text-right">
+            <p id="splitPerPersonMain" class="text-base font-extrabold text-salmon tabular-nums">0원</p>
+            <p id="splitRemainderDetail" class="text-[11px] text-stone-500 tabular-nums mt-0.5 hidden"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 최종 금액 요약 박스 -->
+      <div class="rounded-2xl bg-charcoal text-white p-4 space-y-2">
+        <div class="flex items-center justify-between text-xs text-stone-300">
+          <span>접시 합계 (<span id="summaryPlateCount" class="tabular-nums font-semibold text-white">0</span>접시)</span>
+          <span id="summaryPlatePrice" class="tabular-nums font-semibold text-white">0원</span>
+        </div>
+        <div class="flex items-center justify-between text-xs text-stone-300">
+          <span>사이드 · 추가 항목 (<span id="summarySideCount" class="tabular-nums font-semibold text-white">0</span>개)</span>
+          <span id="summarySidePrice" class="tabular-nums font-semibold text-white">0원</span>
+        </div>
+        <div class="border-t border-stone-700 pt-2.5 mt-2 flex items-baseline justify-between">
+          <span class="text-sm font-bold text-stone-200">최종 결제 예상 금액</span>
+          <span id="summaryGrandTotal" class="text-xl font-extrabold text-[#FF8F7E] tabular-nums">0원</span>
+        </div>
+      </div>
+
+      <!-- 카톡 공유용 정산 복사 버튼 -->
+      <button
+        type="button"
+        id="copyReceiptBtn"
+        class="w-full min-h-[46px] mt-3 py-2.5 px-4 rounded-xl bg-[#FEE500] hover:bg-[#F5DC00] text-[#191919] text-sm font-extrabold flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition"
+      >
+        <span aria-hidden="true">💬</span>
+        <span>카톡 공유용 정산 복사</span>
+      </button>
+    </section>
+  </main>
+
+  <!-- =====================================================================
+       화면 하단 고정 실시간 요약 바
+  ===================================================================== -->
+  <div class="fixed bottom-0 inset-x-0 z-30 pointer-events-none px-3 pb-3 pt-2 bg-gradient-to-t from-cream via-cream/95 to-transparent">
+    <div class="w-full max-w-[480px] mx-auto pointer-events-auto rounded-2xl bg-charcoal text-white px-4 py-3 shadow-lg flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2">
+          <span id="stickyPlateCount" class="text-sm font-extrabold tabular-nums">총 0접시</span>
+          <span id="stickyPerPersonBadge" class="hidden px-2 py-0.5 rounded-full bg-white/15 text-[11px] font-bold text-[#FFD5CE] tabular-nums"></span>
+        </div>
+        <div id="stickySubInfo" class="text-[11px] text-stone-400 truncate mt-0.5">메뉴판을 등록하거나 단골 가게를 선택해 주세요</div>
+      </div>
+      <div class="flex items-center gap-2.5 shrink-0">
+        <span id="stickyTotalPrice" class="text-lg font-extrabold text-[#FF8F7E] tabular-nums">0원</span>
+        <button
+          type="button"
+          id="jumpReceiptBtn"
+          class="px-3 py-1.5 rounded-xl bg-salmon hover:bg-salmon-dark text-white text-xs font-bold active:scale-95 transition"
+        >
+          계산서
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       API 키 설정 모달 (배포용 + Canvas 미리보기 겸용)
+  ===================================================================== -->
+  <div
+    id="settingsModal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="settingsModalTitle"
+    class="hidden fixed inset-0 z-50 bg-charcoal/55 backdrop-blur-[2px] flex items-center justify-center p-4"
+  >
+    <div class="w-full max-w-[380px] rounded-2xl bg-white p-5 shadow-xl border border-stone-200">
+      <div class="flex items-center justify-between mb-3">
+        <h3 id="settingsModalTitle" class="text-base font-extrabold text-charcoal flex items-center gap-1.5">
+          <span aria-hidden="true">⚙️</span> API 키 설정
+        </h3>
+        <button
+          type="button"
+          id="closeSettingsModalBtn"
+          class="w-7 h-7 rounded-lg text-stone-400 hover:bg-sand hover:text-charcoal inline-flex items-center justify-center font-bold text-lg"
+          aria-label="설정 창 닫기"
+        >
+          ×
+        </button>
+      </div>
+
+      <!-- 현재 API 키 적용 상태 표시 -->
+      <div id="apiKeyStatusBox" class="p-3 rounded-xl border mb-3.5 text-xs flex items-center justify-between gap-2">
+        <span class="font-semibold text-stone-600">현재 상태</span>
+        <span id="apiKeyStatusBadge" class="px-2 py-0.5 rounded-full font-bold text-[11px]"></span>
+      </div>
+
+      <p class="text-xs text-stone-600 leading-relaxed mb-3">
+        • <strong class="text-charcoal">미리보기 화면</strong>에서는 비워두어도 기본 키로 자동 동작해요.<br />
+        • 나중에 <strong class="text-charcoal">GitHub Pages 등에 배포</strong>해 내 폰에서 쓸 때 발급받은 Gemini API 키를 여기에 저장하면 바로 사용할 수 있어요. (내 브라우저에만 저장됨)
+      </p>
+
+      <label for="apiKeyInput" class="block text-xs font-bold text-charcoal mb-1.5">
+        Gemini API 키 (선택)
+      </label>
+      <div class="relative mb-4">
+        <input
+          type="password"
+          id="apiKeyInput"
+          placeholder="AIzaSy... (미리보기에서는 비워두기 가능)"
+          autocomplete="off"
+          class="w-full h-10 pl-3 pr-14 rounded-xl border border-stone-200 bg-cream text-xs text-charcoal focus:bg-white focus:outline-none focus:border-salmon"
+        />
+        <button
+          type="button"
+          id="toggleApiKeyVisBtn"
+          class="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[11px] font-bold text-stone-500 hover:bg-sand"
+        >
+          보기
+        </button>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          id="deleteApiKeyBtn"
+          class="py-2.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-xs font-bold text-red-600 transition"
+        >
+          저장된 키 삭제
+        </button>
+        <button
+          type="button"
+          id="saveApiKeyBtn"
+          class="py-2.5 rounded-xl bg-salmon hover:bg-salmon-dark text-xs font-bold text-white transition"
+        >
+          키 저장하기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       새 식사 초기화 확인 모달 (브라우저 confirm() 대신 사용)
+  ===================================================================== -->
+  <div
+    id="resetModal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="resetModalTitle"
+    class="hidden fixed inset-0 z-50 bg-charcoal/55 backdrop-blur-[2px] flex items-center justify-center p-4"
+  >
+    <div class="w-full max-w-[340px] rounded-2xl bg-white p-5 shadow-xl border border-stone-200">
+      <h3 id="resetModalTitle" class="text-base font-extrabold text-charcoal mb-1.5">
+        현재 식사 기록만 초기화할까요?
+      </h3>
+      <p class="text-xs text-stone-600 leading-relaxed mb-4">
+        현재 진행 중인 메뉴판, 촬영 기록, 사이드 메뉴, 예산 및 인원수가 초기화됩니다.<br />
+        <strong class="text-emerald-700">저장해 둔 '단골 가게'와 'API 키'는 그대로 유지돼요!</strong>
+      </p>
+      <div class="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          id="cancelResetBtn"
+          class="py-2.5 rounded-xl bg-sand hover:bg-stone-200 text-xs font-bold text-stone-700 transition"
+        >
+          취소
+        </button>
+        <button
+          type="button"
+          id="confirmResetBtn"
+          class="py-2.5 rounded-xl bg-salmon hover:bg-salmon-dark text-xs font-bold text-white transition"
+        >
+          새 식사 시작
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       API 호출 중 전체 화면 로딩 오버레이
+  ===================================================================== -->
+  <div
+    id="loadingOverlay"
+    role="status"
+    aria-live="polite"
+    class="hidden fixed inset-0 z-50 bg-charcoal/55 backdrop-blur-[2px] flex items-center justify-center p-5"
+  >
+    <div class="w-full max-w-[320px] rounded-2xl bg-white p-6 text-center shadow-xl border border-stone-200">
+      <div class="w-11 h-11 mx-auto mb-3.5 rounded-full border-4 border-stone-200 border-t-salmon animate-spin"></div>
+      <p id="loadingOverlayTitle" class="text-sm font-extrabold text-charcoal mb-1">
+        AI가 사진을 분석하고 있어요...
+      </p>
+      <p id="loadingOverlaySub" class="text-xs text-stone-500 leading-relaxed">
+        잠시만 기다려 주세요 (보통 3~8초 정도 걸려요)
+      </p>
+    </div>
+  </div>
+
+  <!-- 하단 비방해형 토스트 알림 (브라우저 alert() 대신 사용) -->
+  <div
+    id="toast"
+    role="status"
+    aria-live="polite"
+    class="fixed left-1/2 -translate-x-1/2 bottom-24 z-40 px-4 py-2.5 rounded-full bg-charcoal/95 text-white text-xs font-semibold shadow-lg opacity-0 pointer-events-none transition-opacity duration-200 max-w-[90vw] text-center"
+  ></div>
+
+  <script>
+    /* =========================================================================
+       [1. 설정 및 localStorage 저장 키 안내]
+       localStorage는 브라우저 안에 작은 메모장처럼 데이터를 보관하는 공간입니다.
+       새로고침하거나 앱을 껐다 켜도 아래 3가지 키로 저장한 데이터가 유지됩니다.
+    ========================================================================= */
+    const STORAGE_KEYS = {
+      API_KEY: "sushi_user_api_key",       // 사용자가 설정한 배포용 개인 Gemini API 키
+      SAVED_STORES: "sushi_saved_stores",  // 단골 가게 목록 (가게명 + 가격표 + 압축 기준 이미지)
+      SESSION: "sushi_current_session"     // 현재 식사 자동 저장 (새로고침 시 복구용)
+    };
+
+    const GEMINI_MODEL = "gemini-2.5-flash";
+
+    /* =========================================================================
+       [2. 앱 전체 상태(State) 변수]
+       화면의 모든 숫자와 리스트는 아래 변수들을 바탕으로 계산되어 그려집니다.
+    ========================================================================= */
+    let storeName = "";
+    let menuPrices = [];          // [{ id, color_name, visual_description, hex_color, price, confidence }]
+    let menuNotes = [];           // 메뉴판 특이사항 문자열 배열
+    let menuImageBase64 = null;   // 2단계 대조용 기준 메뉴판 Base64 (API 전송용, 최대 1024px)
+    let menuImageMimeType = null;
+    let menuCompactBase64 = null; // 단골 가게 저장용 경량 메뉴판 Base64 (최대 640px, 0.60 품질)
+    let menuCompactMimeType = null;
+    let menuPhotoUrl = null;      // 화면 썸네일 표시용 URL (blob: 또는 data:)
+    let scanHistory = [];         // [{ id, time, photoUrl, warning, stacks, unmatchedPlates, items }]
+    let sideItems = [];           // [{ id, name, price }]
+    let budget = 0;               // 목표 예산 (0이면 미설정)
+    let splitCount = 1;           // 1/N 더치페이 인원수 (1~20)
+    let savedStores = [];         // 단골 가게 배열
+
+    // 빠른 UI 테스트용 샘플 메뉴판
+    const SAMPLE_MENU_PLATES = [
+      { id: "plate_1", color_name: "연두색", visual_description: "흰 바탕에 연두색 테두리 접시", hex_color: "#86D97A", price: 1900, confidence: "high" },
+      { id: "plate_2", color_name: "노랑 / 금색", visual_description: "전체가 노란빛·황토빛 금색 무늬 접시", hex_color: "#EAB308", price: 2500, confidence: "high" },
+      { id: "plate_3", color_name: "빨간색", visual_description: "선명한 빨간색 원형 접시", hex_color: "#E53935", price: 2900, confidence: "high" },
+      { id: "plate_4", color_name: "남보라색", visual_description: "흰 바탕에 남보라색 테두리 무늬 접시", hex_color: "#4E5494", price: 3500, confidence: "high" },
+      { id: "plate_5", color_name: "검정 마블", visual_description: "짙은 남색·검정 마블 무늬 접시", hex_color: "#272C38", price: 4500, confidence: "high" },
+      { id: "plate_6", color_name: "검정 체크", visual_description: "검정과 금색 바둑판 체크 테두리 접시", hex_color: "#141414", price: 5500, confidence: "high" }
+    ];
+
+    /* =========================================================================
+       [3. DOM 요소 참조 모음]
+    ========================================================================= */
+    const els = {
+      headerStatusSub: document.getElementById("headerStatusSub"),
+      openResetModalBtn: document.getElementById("openResetModalBtn"),
+      openSettingsModalBtn: document.getElementById("openSettingsModalBtn"),
+      apiKeyActiveDot: document.getElementById("apiKeyActiveDot"),
+
+      globalErrorBanner: document.getElementById("globalErrorBanner"),
+      globalErrorTitle: document.getElementById("globalErrorTitle"),
+      globalErrorMessage: document.getElementById("globalErrorMessage"),
+      closeGlobalErrorBtn: document.getElementById("closeGlobalErrorBtn"),
+      sessionRestoredBanner: document.getElementById("sessionRestoredBanner"),
+      closeRestoredBannerBtn: document.getElementById("closeRestoredBannerBtn"),
+
+      storeNameInput: document.getElementById("storeNameInput"),
+      saveStoreBtn: document.getElementById("saveStoreBtn"),
+      savedStoreCountBadge: document.getElementById("savedStoreCountBadge"),
+      savedStoresContainer: document.getElementById("savedStoresContainer"),
+
+      menuPhotoInput: document.getElementById("menuPhotoInput"),
+      loadSampleMenuBtn: document.getElementById("loadSampleMenuBtn"),
+      menuPreviewBox: document.getElementById("menuPreviewBox"),
+      menuThumbImg: document.getElementById("menuThumbImg"),
+      menuNotesBox: document.getElementById("menuNotesBox"),
+      plateListContainer: document.getElementById("plateListContainer"),
+      addPlateBtn: document.getElementById("addPlateBtn"),
+
+      budgetInput: document.getElementById("budgetInput"),
+      budgetStatusText: document.getElementById("budgetStatusText"),
+      clearBudgetBtn: document.getElementById("clearBudgetBtn"),
+      budgetBarWrap: document.getElementById("budgetBarWrap"),
+      budgetProgressBar: document.getElementById("budgetProgressBar"),
+      budgetPercentLabel: document.getElementById("budgetPercentLabel"),
+      budgetRemainLabel: document.getElementById("budgetRemainLabel"),
+
+      platePhotoInput: document.getElementById("platePhotoInput"),
+      mockScanBtn: document.getElementById("mockScanBtn"),
+      scanHistoryContainer: document.getElementById("scanHistoryContainer"),
+
+      receiptTableContainer: document.getElementById("receiptTableContainer"),
+      sideItemForm: document.getElementById("sideItemForm"),
+      sideNameInput: document.getElementById("sideNameInput"),
+      sidePriceInput: document.getElementById("sidePriceInput"),
+      sideItemsContainer: document.getElementById("sideItemsContainer"),
+
+      splitMinusBtn: document.getElementById("splitMinusBtn"),
+      splitPlusBtn: document.getElementById("splitPlusBtn"),
+      splitCountDisplay: document.getElementById("splitCountDisplay"),
+      splitPerPersonMain: document.getElementById("splitPerPersonMain"),
+      splitRemainderDetail: document.getElementById("splitRemainderDetail"),
+
+      summaryPlateCount: document.getElementById("summaryPlateCount"),
+      summaryPlatePrice: document.getElementById("summaryPlatePrice"),
+      summarySideCount: document.getElementById("summarySideCount"),
+      summarySidePrice: document.getElementById("summarySidePrice"),
+      summaryGrandTotal: document.getElementById("summaryGrandTotal"),
+      copyReceiptBtn: document.getElementById("copyReceiptBtn"),
+
+      stickyPlateCount: document.getElementById("stickyPlateCount"),
+      stickyPerPersonBadge: document.getElementById("stickyPerPersonBadge"),
+      stickySubInfo: document.getElementById("stickySubInfo"),
+      stickyTotalPrice: document.getElementById("stickyTotalPrice"),
+      jumpReceiptBtn: document.getElementById("jumpReceiptBtn"),
+
+      settingsModal: document.getElementById("settingsModal"),
+      closeSettingsModalBtn: document.getElementById("closeSettingsModalBtn"),
+      apiKeyStatusBox: document.getElementById("apiKeyStatusBox"),
+      apiKeyStatusBadge: document.getElementById("apiKeyStatusBadge"),
+      apiKeyInput: document.getElementById("apiKeyInput"),
+      toggleApiKeyVisBtn: document.getElementById("toggleApiKeyVisBtn"),
+      deleteApiKeyBtn: document.getElementById("deleteApiKeyBtn"),
+      saveApiKeyBtn: document.getElementById("saveApiKeyBtn"),
+
+      resetModal: document.getElementById("resetModal"),
+      cancelResetBtn: document.getElementById("cancelResetBtn"),
+      confirmResetBtn: document.getElementById("confirmResetBtn"),
+
+      loadingOverlay: document.getElementById("loadingOverlay"),
+      loadingOverlayTitle: document.getElementById("loadingOverlayTitle"),
+      loadingOverlaySub: document.getElementById("loadingOverlaySub"),
+      toast: document.getElementById("toast")
+    };
+
+    /* =========================================================================
+       [4. API 키 폴백(Fallback) 로직]
+       - 사용자가 설정 모달에서 개인 키를 저장했다면 그 키를 사용합니다. (GitHub Pages 배포용)
+       - 저장된 키가 없으면 빈 문자열("")을 반환해 Canvas 미리보기 환경이 자동으로 키를 주입하게 합니다.
+    ========================================================================= */
+    function getSavedUserApiKey() {
+      try {
+        return (localStorage.getItem(STORAGE_KEYS.API_KEY) || "").trim();
+      } catch (err) {
+        return "";
+      }
+    }
+
+    function getActiveApiKey() {
+      const userKey = getSavedUserApiKey();
+      const apiKey = ""; // 미리보기 런타임 자동 주입용 기본 빈 문자열
+      return userKey || apiKey;
+    }
+
+    function updateApiKeyStatusUI() {
+      const hasUserKey = Boolean(getSavedUserApiKey());
+      if (hasUserKey) {
+        els.apiKeyActiveDot.classList.remove("hidden");
+        els.apiKeyStatusBox.className = "p-3 rounded-xl border border-emerald-200 bg-emerald-50 mb-3.5 text-xs flex items-center justify-between gap-2";
+        els.apiKeyStatusBadge.className = "px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold text-[11px]";
+        els.apiKeyStatusBadge.textContent = "사용자 API 키 적용됨";
+      } else {
+        els.apiKeyActiveDot.classList.add("hidden");
+        els.apiKeyStatusBox.className = "p-3 rounded-xl border border-stone-200 bg-cream mb-3.5 text-xs flex items-center justify-between gap-2";
+        els.apiKeyStatusBadge.className = "px-2 py-0.5 rounded-full bg-stone-700 text-white font-bold text-[11px]";
+        els.apiKeyStatusBadge.textContent = "미리보기 기본 키 사용 중";
+      }
+    }
+
+    /* =========================================================================
+       [5. localStorage 자동 저장 & 복구 (세션 + 단골 가게)]
+       - 현재 식사 세션은 용량이 큰 사진(Base64)을 빼고 가벼운 메타데이터만 저장합니다.
+       - 단골 가게는 가격표와 함께 640px로 압축한 기준 사진을 저장하며,
+         용량 초과(QuotaExceededError) 시 사진만 빼고 가격표를 안전하게 저장합니다.
+    ========================================================================= */
+    function saveCurrentSession() {
+      try {
+        // blob URL이나 무거운 이미지 데이터는 제외하고 숫자/목록만 가볍게 저장
+        const cleanScans = scanHistory.map((scan) => ({
+          id: scan.id,
+          time: scan.time,
+          warning: scan.warning || null,
+          stacks: scan.stacks || [],
+          unmatchedPlates: scan.unmatchedPlates || [],
+          items: scan.items || []
+        }));
+
+        const sessionPayload = {
+          storeName,
+          menuPrices,
+          menuNotes,
+          scanHistory: cleanScans,
+          sideItems,
+          budget,
+          splitCount,
+          updatedAt: Date.now()
+        };
+
+        localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(sessionPayload));
+      } catch (err) {
+        // 사파리 프라이빗 모드 등 스토리지 제한 환경에서는 조용히 무시
+      }
+    }
+
+    function loadSavedStoresFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.SAVED_STORES);
+        if (!raw) {
+          savedStores = [];
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        savedStores = Array.isArray(parsed) ? parsed : [];
+      } catch (err) {
+        savedStores = [];
+      }
+    }
+
+    function persistSavedStoresToStorage() {
+      localStorage.setItem(STORAGE_KEYS.SAVED_STORES, JSON.stringify(savedStores));
+    }
+
+    function restoreCurrentSession() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.SESSION);
+        if (!raw) return false;
+        const data = JSON.parse(raw);
+        if (!data || typeof data !== "object") return false;
+
+        const hasMeaningfulData =
+          (Array.isArray(data.menuPrices) && data.menuPrices.length > 0) ||
+          (Array.isArray(data.scanHistory) && data.scanHistory.length > 0) ||
+          (Array.isArray(data.sideItems) && data.sideItems.length > 0) ||
+          Number(data.budget) > 0;
+
+        if (!hasMeaningfulData) return false;
+
+        storeName = String(data.storeName || "");
+        menuPrices = Array.isArray(data.menuPrices)
+          ? data.menuPrices.map((p) => ({
+              ...p,
+              hex_color: normalizeHex(p.hex_color || p.color_hex)
+            }))
+          : [];
+        menuNotes = Array.isArray(data.menuNotes) ? data.menuNotes : [];
+        scanHistory = Array.isArray(data.scanHistory)
+          ? data.scanHistory.map((s) => ({
+              ...s,
+              photoUrl: null // 새로고침 후에는 브라우저 임시 blob URL이 만료되므로 null 처리
+            }))
+          : [];
+        sideItems = Array.isArray(data.sideItems) ? data.sideItems : [];
+        budget = Math.max(0, parseInt(data.budget, 10) || 0);
+        splitCount = Math.min(20, Math.max(1, parseInt(data.splitCount, 10) || 1));
+
+        // 복원된 가게 이름과 일치하는 단골 가게에 기준 사진이 있다면 자동으로 다시 연결!
+        if (storeName) {
+          const matchedStore = savedStores.find(
+            (st) => st.name.trim() === storeName.trim() && st.refImageBase64
+          );
+          if (matchedStore) {
+            menuImageBase64 = matchedStore.refImageBase64;
+            menuImageMimeType = matchedStore.refImageMimeType || "image/jpeg";
+            menuCompactBase64 = matchedStore.refImageBase64;
+            menuCompactMimeType = matchedStore.refImageMimeType || "image/jpeg";
+            menuPhotoUrl = `data:${menuImageMimeType};base64,${menuImageBase64}`;
+          }
+        }
+
+        els.storeNameInput.value = storeName;
+        els.budgetInput.value = budget > 0 ? String(budget) : "";
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    /* =========================================================================
+       [6. 공통 유틸리티 함수]
+    ========================================================================= */
+    function formatWon(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num) || num < 0) return "0";
+      return Math.round(num).toLocaleString("ko-KR");
+    }
+
+    function getTimeLabel() {
+      return new Date().toLocaleTimeString("ko-KR", {
+        hour: "numeric",
+        minute: "2-digit"
+      });
+    }
+
+    function escapeHtml(text) {
+      return String(text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function normalizeHex(hex) {
+      if (typeof hex !== "string") return "#A8A29E";
+      const t = hex.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(t)) return t;
+      if (/^#[0-9a-fA-F]{3}$/.test(t)) {
+        return "#" + t[1] + t[1] + t[2] + t[2] + t[3] + t[3];
+      }
+      return "#A8A29E";
+    }
+
+    function revokeIfBlobUrl(url) {
+      if (typeof url === "string" && url.startsWith("blob:")) {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    function findPlateById(plateId) {
+      return menuPrices.find((p) => p.id === plateId) || null;
+    }
+
+    let toastTimer = null;
+    function showToast(message) {
+      els.toast.textContent = message;
+      els.toast.classList.remove("opacity-0", "pointer-events-none");
+      els.toast.classList.add("opacity-100");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        els.toast.classList.remove("opacity-100");
+        els.toast.classList.add("opacity-0", "pointer-events-none");
+      }, 2700);
+    }
+
+    function showGlobalError(title, message) {
+      els.globalErrorTitle.textContent = title || "분석 중 문제가 발생했어요";
+      els.globalErrorMessage.textContent = message || "잠시 후 다시 시도해 주세요.";
+      els.globalErrorBanner.classList.remove("hidden");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function hideGlobalError() {
+      els.globalErrorBanner.classList.add("hidden");
+    }
+
+    function showLoading(title, sub) {
+      els.loadingOverlayTitle.textContent = title || "AI가 분석하고 있어요...";
+      els.loadingOverlaySub.textContent = sub || "잠시만 기다려 주세요 (보통 3~8초 정도 걸려요)";
+      els.loadingOverlay.classList.remove("hidden");
+    }
+
+    function hideLoading() {
+      els.loadingOverlay.classList.add("hidden");
+    }
+
+    /* =========================================================================
+       [7. 이미지 Canvas 리사이즈 및 Base64 변환]
+       - API 호출용: max 1024px, JPEG 0.75 (선명함과 전송 속도의 균형)
+       - 단골 가게 저장용: max 640px, JPEG 0.60 (localStorage 용량 절약)
+    ========================================================================= */
+    function resizeImageToBase64(file, maxDimension = 1024, quality = 0.75) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onerror = () => reject(new Error("사진 파일을 읽지 못했습니다. 다른 사진으로 시도해 주세요."));
+
+        reader.onload = () => {
+          const dataUrl = String(reader.result || "");
+          const img = new Image();
+
+          img.onerror = () => {
+            const parts = dataUrl.split(",");
+            if (parts.length < 2) {
+              reject(new Error("지원하지 않는 이미지 형식입니다."));
+              return;
+            }
+            const mimeMatch = parts[0].match(/data:(.*?);base64/);
+            resolve({
+              base64: parts[1],
+              mimeType: (mimeMatch && mimeMatch[1]) || file.type || "image/jpeg"
+            });
+          };
+
+          img.onload = () => {
+            try {
+              let width = img.naturalWidth || img.width;
+              let height = img.naturalHeight || img.height;
+
+              if (width > maxDimension || height > maxDimension) {
+                if (width >= height) {
+                  height = Math.round((height * maxDimension) / width);
+                  width = maxDimension;
+                } else {
+                  width = Math.round((width * maxDimension) / height);
+                  height = maxDimension;
+                }
+              }
+
+              const canvas = document.createElement("canvas");
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext("2d");
+              ctx.drawImage(img, 0, 0, width, height);
+
+              const resizedDataUrl = canvas.toDataURL("image/jpeg", quality);
+              const base64 = resizedDataUrl.split(",")[1];
+              resolve({ base64, mimeType: "image/jpeg" });
+            } catch (err) {
+              const parts = dataUrl.split(",");
+              const mimeMatch = parts[0].match(/data:(.*?);base64/);
+              resolve({
+                base64: parts[1],
+                mimeType: (mimeMatch && mimeMatch[1]) || file.type || "image/jpeg"
+              });
+            }
+          };
+
+          img.src = dataUrl;
+        };
+
+        reader.readAsDataURL(file);
+      });
+    }
+
+    /* =========================================================================
+       [8. Gemini Vision API 호출 엔진 (지수 백오프 재시도 포함)]
+    ========================================================================= */
+    function safeParseJson(rawText) {
+      if (!rawText || typeof rawText !== "string") {
+        throw new SyntaxError("AI 응답이 비어 있습니다.");
+      }
+      const cleaned = rawText
+        .trim()
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+      return JSON.parse(cleaned);
+    }
+
+    async function callGeminiVision({ parts, responseSchema }) {
+      const activeKey = getActiveApiKey();
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(activeKey)}`;
+
+      const payload = {
+        contents: [
+          {
+            role: "user",
+            parts
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+          ...(responseSchema ? { responseSchema } : {})
+        }
+      };
+
+      // 요청 제한(429)이나 일시 서버 오류(5xx) 시 1초 -> 2초 -> 4초 간격으로 재시도
+      const retryDelays = [1000, 2000, 4000];
+      let lastError = null;
+
+      for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+        try {
+          const response = await fetch(apiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            const shouldRetry =
+              (response.status === 429 || response.status >= 500) &&
+              attempt < retryDelays.length;
+
+            if (shouldRetry) {
+              await new Promise((r) => setTimeout(r, retryDelays[attempt]));
+              continue;
+            }
+
+            if (response.status === 400 || response.status === 401 || response.status === 403) {
+              throw new Error(`API 키 인증에 실패했어요 (코드 ${response.status}). 우측 상단 ⚙️ 설정에서 API 키를 확인해 주세요.`);
+            }
+            throw new Error(`AI 서버와 통신하지 못했어요 (오류 코드: ${response.status}).`);
+          }
+
+          const result = await response.json();
+          const textOutput = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+          if (!textOutput) {
+            throw new Error("AI가 사진에서 정보를 읽어내지 못했어요. 좀 더 선명한 사진으로 다시 올려주세요.");
+          }
+
+          return safeParseJson(textOutput);
+        } catch (err) {
+          lastError = err;
+          if (err instanceof TypeError && attempt < retryDelays.length) {
+            await new Promise((r) => setTimeout(r, retryDelays[attempt]));
+            continue;
+          }
+          break;
+        }
+      }
+
+      throw lastError || new Error("알 수 없는 오류로 AI 요청에 실패했습니다.");
+    }
+
+    /* =========================================================================
+       [9. 1단계: 메뉴판 인식 API 요청]
+       왼쪽 위 -> 오른쪽 아래 순차 스캔으로 빨간/주황 접시 누락과 가격 밀림 방지
+    ========================================================================= */
+    async function analyzeMenuWithAI(base64Data, mimeType) {
+      const prompt = `너는 회전초밥집 메뉴판에서 접시별 가격 정보를 추출하는 비전 데이터 분석 엔진이야.
+첨부된 메뉴판 이미지를 보고 아래 규칙을 엄격히 지켜 순수 JSON으로만 응답해.
+
+[필수 규칙]
+1. 메뉴판을 왼쪽 위에서 오른쪽 아래 방향으로 한 줄씩 빠짐없이 스캔해. 따뜻한 나무 배경이나 붉은 강조 배너 위에 있는 빨간색·주황색·분홍색 접시를 배경 장식으로 착각해 절대 건너뛰지 마.
+2. 접시 그림과 바로 옆/아래에 적힌 가격 숫자를 정확히 1:1 매칭해 가격이 밀리지 않게 추출해.
+3. 각 접시 항목은 아래 필드를 모두 채워:
+   - id: "plate_1", "plate_2" 순서의 고유 ID
+   - color_name: 접시 색상·무늬의 짧은 한글 이름
+   - visual_description: 2단계 접시 대조를 위한 테두리 색·바탕색·무늬 특징 설명
+   - hex_color: UI 색상 점에 쓸 근사 CSS HEX 색상 코드 ("#RRGGBB" 형식)
+   - price: 쉼표와 '원'을 뺀 순수 정수 원화(KRW)
+   - confidence: 확실하면 "high", 약간 애매하면 "medium", 흐리거나 불확실하면 "low"
+4. "2장 합산", "부가세 별도", "스페셜 접시 별도" 같은 안내 문구가 있으면 notes 배열에 짧게 적어. 없으면 빈 배열 [].
+5. 설명 문장 없이 순수 JSON만 출력해.`;
+
+      const menuSchema = {
+        type: "OBJECT",
+        properties: {
+          plates: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                id: { type: "STRING" },
+                color_name: { type: "STRING" },
+                visual_description: { type: "STRING" },
+                hex_color: { type: "STRING" },
+                price: { type: "INTEGER" },
+                confidence: { type: "STRING", enum: ["high", "medium", "low"] }
+              },
+              required: ["id", "color_name", "visual_description", "hex_color", "price", "confidence"]
+            }
+          },
+          notes: {
+            type: "ARRAY",
+            items: { type: "STRING" }
+          }
+        },
+        required: ["plates", "notes"]
+      };
+
+      const data = await callGeminiVision({
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType, data: base64Data } }
+        ],
+        responseSchema: menuSchema
+      });
+
+      if (!data || !Array.isArray(data.plates) || data.plates.length === 0) {
+        throw new Error("메뉴판에서 접시와 가격을 찾지 못했어요. 접시와 숫자가 잘 보이게 다시 찍어주세요.");
+      }
+
+      const normalizedPlates = data.plates.map((item, idx) => {
+        const cleanPrice = parseInt(String(item.price ?? "0").replace(/[^0-9]/g, ""), 10);
+        const safeConf = ["high", "medium", "low"].includes(item.confidence)
+          ? item.confidence
+          : "medium";
+
+        return {
+          id: item.id ? String(item.id).trim() : `plate_${idx + 1}`,
+          color_name: String(item.color_name || `접시 ${idx + 1}`).trim(),
+          visual_description: String(item.visual_description || "").trim(),
+          hex_color: normalizeHex(item.hex_color || item.color_hex),
+          price: Number.isNaN(cleanPrice) ? 0 : cleanPrice,
+          confidence: safeConf
+        };
+      });
+
+      const notes = Array.isArray(data.notes)
+        ? data.notes.map((n) => String(n).trim()).filter(Boolean)
+        : [];
+
+      return { plates: normalizedPlates, notes };
+    }
+
+    /* =========================================================================
+       [10. 2단계: 2장 동시 대조(Visual Reference) 빈 접시 카운트 API 요청]
+       핵심 구조:
+       parts 배열에 [프롬프트 텍스트, 이미지1(저장된 메뉴판), 이미지2(방금 찍은 빈 접시)]를
+       함께 실어 보내 AI가 실제 접시 외형을 눈으로 직접 비교하게 만듭니다.
+    ========================================================================= */
+    async function analyzePlatesWithAI(plateBase64, plateMimeType) {
+      const hasMenuRefImage = Boolean(menuImageBase64 && menuImageMimeType);
+
+      const referenceJson = JSON.stringify(
+        {
+          currency: "KRW",
+          plates: menuPrices.map((p) => ({
+            id: p.id,
+            color_name: p.color_name,
+            visual_description: p.visual_description || p.color_name,
+            price: p.price
+          }))
+        },
+        null,
+        2
+      );
+
+      const imageIntro = hasMenuRefImage
+        ? `첨부된 이미지는 총 2장이다.
+- 이미지 1: 실제 접시 색상·무늬·가격이 나온 기준 메뉴판
+- 이미지 2: 손님이 다 먹고 쌓아둔 빈 접시`
+        : `첨부된 이미지는 1장(손님이 다 먹고 쌓아둔 빈 접시)이다. 아래 [기준 가격표 JSON]을 참고해 판별하라.`;
+
+      const prompt = `너는 회전초밥집 테이블 위 빈 접시의 개수를 정확하게 세는 비전 카운터야.
+${imageIntro}
+
+[기준 가격표 JSON]
+${referenceJson}
+
+[필수 규칙]
+1. 각 더미(stack)를 한 번에 어림잡지 말고, 맨 아래에서 맨 위까지 옆면 테두리를 하나씩 짚어 stacks 배열(bottom_to_top)에 먼저 기록한 뒤 이를 정확히 합산해 counts 배열에 적어. 총 가격 계산은 절대 하지 마.
+2. ${hasMenuRefImage ? "이미지 1(메뉴판)과 이미지 2(빈 접시)를 직접 대조해." : "기준 가격표 외형 설명과 빈 접시를 꼼꼼히 대조해."} 특히 어두운 계열(검정 마블 vs 검정 체크 등)은 테두리 반복 패턴 차이를 세밀하게 구분해.
+3. 각도나 조명 때문에 100% 확신하기 어렵더라도 메뉴판 접시 중 하나로 추정되면 가장 가까운 id로 counts에 포함하되, confidence를 "medium" 또는 "low"로 표시하고 review_reason에 헷갈린 이유를 짧게 한국어로 적어. 확실하면 review_reason은 "".
+4. 메뉴판에 없는 특수 접시(사각 접시 등)는 unmatched_plates에 따로 모아줘. 장국 그릇, 간장 종지, 물컵, 젓가락 받침은 절대 세지 마.
+5. 각도가 낮아 상단이 가려졌거나 사진이 잘린 경우에만 warning에 짧은 한국어 안내 문구를 적고, 이상 없으면 null로 둬.
+6. 설명 문장 없이 순수 JSON만 출력해.`;
+
+      const countSchema = {
+        type: "OBJECT",
+        properties: {
+          stacks: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                location: { type: "STRING" },
+                bottom_to_top: {
+                  type: "ARRAY",
+                  items: { type: "STRING" }
+                },
+                stack_total: { type: "INTEGER" }
+              },
+              required: ["location", "bottom_to_top", "stack_total"]
+            }
+          },
+          counts: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                id: { type: "STRING" },
+                color_name: { type: "STRING" },
+                count: { type: "INTEGER" },
+                confidence: { type: "STRING", enum: ["high", "medium", "low"] },
+                review_reason: { type: "STRING" }
+              },
+              required: ["id", "color_name", "count", "confidence", "review_reason"]
+            }
+          },
+          unmatched_plates: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                description: { type: "STRING" },
+                count: { type: "INTEGER" }
+              },
+              required: ["description", "count"]
+            }
+          },
+          warning: {
+            type: "STRING",
+            nullable: true
+          }
+        },
+        required: ["stacks", "counts", "unmatched_plates"]
+      };
+
+      // 핵심: 프롬프트 + (이미지 1: 기준 메뉴판) + 이미지 2: 빈 접시
+      const parts = [{ text: prompt }];
+      if (hasMenuRefImage) {
+        parts.push({
+          inlineData: {
+            mimeType: menuImageMimeType,
+            data: menuImageBase64
+          }
+        });
+      }
+      parts.push({
+        inlineData: {
+          mimeType: plateMimeType,
+          data: plateBase64
+        }
+      });
+
+      const data = await callGeminiVision({
+        parts,
+        responseSchema: countSchema
+      });
+
+      // 반환된 counts를 기준 가격표와 안전하게 매칭 (동일 id 중복 시 합산)
+      const mergedMap = new Map();
+      const rawCounts = Array.isArray(data?.counts) ? data.counts : [];
+
+      rawCounts.forEach((entry) => {
+        const parsedCount = parseInt(entry?.count, 10);
+        if (Number.isNaN(parsedCount) || parsedCount <= 0) return;
+
+        let matched = findPlateById(entry.id);
+        if (!matched && entry.color_name) {
+          matched = menuPrices.find(
+            (p) => p.color_name.trim() === String(entry.color_name).trim()
+          );
+        }
+        if (!matched) return;
+
+        const safeConf = ["high", "medium", "low"].includes(entry.confidence)
+          ? entry.confidence
+          : "high";
+        const reason = String(entry.review_reason || "").trim();
+
+        if (mergedMap.has(matched.id)) {
+          const prev = mergedMap.get(matched.id);
+          prev.count += parsedCount;
+          if (safeConf === "low" || (safeConf === "medium" && prev.confidence === "high")) {
+            prev.confidence = safeConf;
+          }
+          if (reason && !prev.reviewReason) prev.reviewReason = reason;
+        } else {
+          mergedMap.set(matched.id, {
+            plateId: matched.id,
+            count: parsedCount,
+            confidence: safeConf,
+            reviewReason: reason
+          });
+        }
+      });
+
+      const unmatchedPlates = Array.isArray(data?.unmatched_plates)
+        ? data.unmatched_plates
+            .filter((u) => u && parseInt(u.count, 10) > 0)
+            .map((u) => ({
+              description: String(u.description || "메뉴판 외 특수 접시").trim(),
+              count: parseInt(u.count, 10) || 1
+            }))
+        : [];
+
+      const warningText =
+        data?.warning && String(data.warning).trim() && String(data.warning).trim() !== "null"
+          ? String(data.warning).trim()
+          : null;
+
+      return {
+        stacks: Array.isArray(data?.stacks) ? data.stacks : [],
+        counts: Array.from(mergedMap.values()),
+        unmatchedPlates,
+        warning: warningText
+      };
+    }
+
+    /* =========================================================================
+       [11. JavaScript 정밀 합산 및 1/N 더치페이 계산기]
+       곱셈과 덧셈은 AI 대신 자바스크립트가 100% 정확하게 처리합니다.
+    ========================================================================= */
+    function calculateTotals() {
+      const countByPlateId = {};
+      let totalPlateCount = 0;
+      let totalPlatePrice = 0;
+
+      scanHistory.forEach((scan) => {
+        scan.items.forEach((item) => {
+          const plate = findPlateById(item.plateId);
+          if (!plate || item.count <= 0) return;
+          countByPlateId[plate.id] = (countByPlateId[plate.id] || 0) + item.count;
+          totalPlateCount += item.count;
+          totalPlatePrice += item.count * plate.price;
+        });
+      });
+
+      const aggregatedRows = menuPrices
+        .map((plate) => {
+          const count = countByPlateId[plate.id] || 0;
+          return {
+            plate,
+            count,
+            subtotal: count * plate.price
+          };
+        })
+        .filter((row) => row.count > 0);
+
+      const totalSideCount = sideItems.length;
+      const totalSidePrice = sideItems.reduce((sum, item) => sum + item.price, 0);
+      const grandTotal = totalPlatePrice + totalSidePrice;
+
+      // 1/N 더치페이 계산
+      const basePerPerson = Math.floor(grandTotal / splitCount);
+      const remainder = grandTotal % splitCount;
+      const ceilPerPerson = Math.ceil(grandTotal / splitCount);
+
+      return {
+        aggregatedRows,
+        totalPlateCount,
+        totalPlatePrice,
+        totalSideCount,
+        totalSidePrice,
+        grandTotal,
+        basePerPerson,
+        remainder,
+        ceilPerPerson
+      };
+    }
+
+    /* =========================================================================
+       [12. 화면 렌더링 함수 모음]
+    ========================================================================= */
+
+    // 단골 가게 칩 목록 렌더링
+    function renderSavedStores() {
+      els.savedStoreCountBadge.textContent = `${savedStores.length}개 저장됨`;
+
+      if (savedStores.length === 0) {
+        els.savedStoresContainer.innerHTML = `
+          <p class="text-[11px] text-stone-400">
+            메뉴판을 등록한 뒤 가게 이름을 입력하고 저장하면, 다음 방문 때 탭 한 번으로 불러올 수 있어요.
+          </p>
+        `;
+        return;
+      }
+
+      els.savedStoresContainer.innerHTML = savedStores
+        .map((store) => {
+          const isCurrent = storeName.trim() !== "" && store.name.trim() === storeName.trim();
+          const hasPhoto = Boolean(store.refImageBase64);
+          return `
+            <div
+              class="saved-store-chip group inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-xl border text-xs cursor-pointer transition ${
+                isCurrent
+                  ? "bg-salmon-soft border-salmon text-salmon-dark font-bold"
+                  : "bg-white border-stone-200 hover:border-salmon/60 text-charcoal font-semibold"
+              }"
+              data-store-id="${escapeHtml(store.id)}"
+              role="button"
+              tabindex="0"
+            >
+              <span class="truncate max-w-[120px]">${escapeHtml(store.name)}</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded-md ${
+                isCurrent ? "bg-white/80 text-salmon-dark" : "bg-sand text-stone-600"
+              }">${store.plates.length}종${hasPhoto ? " · 📷" : ""}</span>
+              <button
+                type="button"
+                class="delete-store-btn w-5 h-5 rounded-md text-stone-400 hover:bg-red-100 hover:text-red-600 inline-flex items-center justify-center font-bold text-sm leading-none transition"
+                data-store-id="${escapeHtml(store.id)}"
+                aria-label="${escapeHtml(store.name)} 단골 가게 삭제"
+              >
+                ×
+              </button>
+            </div>
+          `;
+        })
+        .join("");
+    }
+
+    // 1단계: 기준 메뉴판 미리보기 & 접시 가격표 편집 리스트 렌더링
+    function renderMenuPrices() {
+      if (storeName.trim()) {
+        els.headerStatusSub.textContent = `현재 가게: ${storeName.trim()}`;
+      } else {
+        els.headerStatusSub.textContent = "메뉴판 학습 · 6~7장 분할 촬영";
+      }
+
+      if (menuPhotoUrl) {
+        els.menuThumbImg.src = menuPhotoUrl;
+        els.menuPreviewBox.classList.remove("hidden");
+        els.menuPreviewBox.classList.add("flex");
+      } else {
+        els.menuThumbImg.src = "";
+        els.menuPreviewBox.classList.add("hidden");
+        els.menuPreviewBox.classList.remove("flex");
+      }
+
+      if (menuNotes.length > 0) {
+        els.menuNotesBox.innerHTML = `
+          <p class="font-bold text-charcoal mb-1">📌 메뉴판 특이사항</p>
+          ${menuNotes.map((note) => `<p>• ${escapeHtml(note)}</p>`).join("")}
+        `;
+        els.menuNotesBox.classList.remove("hidden");
+      } else {
+        els.menuNotesBox.innerHTML = "";
+        els.menuNotesBox.classList.add("hidden");
+      }
+
+      if (menuPrices.length === 0) {
+        els.plateListContainer.innerHTML = `
+          <div class="rounded-xl border border-dashed border-stone-200 bg-cream p-4 text-center text-xs text-stone-500 leading-relaxed">
+            아직 등록된 가격표가 없어요.<br />
+            <strong class="text-charcoal">메뉴판 사진을 올리거나</strong> 샘플 메뉴판 버튼으로 바로 시작해 보세요!
+          </div>
+        `;
+        return;
+      }
+
+      els.plateListContainer.innerHTML = menuPrices
+        .map((plate) => {
+          const isLow = plate.confidence === "low";
+          const isMedium = plate.confidence === "medium";
+          const needsReview = isLow || isMedium;
+          const rowBorderClass = needsReview
+            ? "bg-amber-50/70 border-amber-300"
+            : "bg-cream/80 border-stone-200/80";
+
+          return `
+            <div class="plate-row rounded-xl border p-2 ${rowBorderClass}" data-plate-id="${escapeHtml(plate.id)}">
+              <div class="grid grid-cols-[28px_1fr_92px_28px] gap-2 items-center">
+                <input
+                  type="color"
+                  class="plate-color-input w-7 h-7"
+                  value="${escapeHtml(normalizeHex(plate.hex_color))}"
+                  aria-label="${escapeHtml(plate.color_name)} 색상 선택"
+                />
+                <input
+                  type="text"
+                  class="plate-name-input w-full h-9 px-2.5 rounded-lg border border-stone-200 bg-white text-xs font-semibold text-charcoal focus:outline-none focus:border-salmon"
+                  value="${escapeHtml(plate.color_name)}"
+                  placeholder="접시 이름"
+                  aria-label="접시 이름"
+                />
+                <div class="relative">
+                  <input
+                    type="number"
+                    class="plate-price-input w-full h-9 pl-2 pr-6 rounded-lg border border-stone-200 bg-white text-xs font-bold text-right text-charcoal tabular-nums focus:outline-none focus:border-salmon"
+                    value="${plate.price}"
+                    min="0"
+                    step="100"
+                    aria-label="접시 가격"
+                  />
+                  <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-stone-400 pointer-events-none">원</span>
+                </div>
+                <button
+                  type="button"
+                  class="plate-delete-btn w-7 h-7 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600 inline-flex items-center justify-center text-base font-bold transition"
+                  aria-label="${escapeHtml(plate.color_name)} 삭제"
+                >
+                  ×
+                </button>
+              </div>
+              ${
+                needsReview || plate.visual_description
+                  ? `
+                    <div class="mt-1.5 pl-1 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-500">
+                      ${
+                        needsReview
+                          ? `<span class="review-badge inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-800 font-bold text-[10px]">⚠️ ${isLow ? "인식 낮음 · 확인 필요" : "확인 필요"}</span>`
+                          : ""
+                      }
+                      ${
+                        plate.visual_description
+                          ? `<span class="truncate max-w-full">${escapeHtml(plate.visual_description)}</span>`
+                          : ""
+                      }
+                    </div>
+                  `
+                  : ""
+              }
+            </div>
+          `;
+        })
+        .join("");
+    }
+
+    // 2단계 상단: 목표 예산 게이지 렌더링
+    function renderBudgetGauge(grandTotal) {
+      if (!budget || budget <= 0) {
+        els.budgetStatusText.textContent = "설정 안 함";
+        els.budgetStatusText.className = "text-[11px] font-bold text-stone-500 tabular-nums";
+        els.budgetBarWrap.classList.add("hidden");
+        return;
+      }
+
+      els.budgetBarWrap.classList.remove("hidden");
+      const rawPercent = Math.round((grandTotal / budget) * 100);
+      const clampedWidth = Math.min(100, rawPercent);
+      const diff = budget - grandTotal;
+
+      els.budgetStatusText.textContent = `목표 ${formatWon(budget)}원`;
+      els.budgetProgressBar.style.width = `${clampedWidth}%`;
+      els.budgetPercentLabel.textContent = `${rawPercent}% 사용`;
+
+      // 구간별 색상 전환: 80% 미만 에메랄드 -> 80~100% 앰버 -> 초과 코랄 레드
+      els.budgetProgressBar.classList.remove("bg-emerald-500", "bg-amber-500", "bg-salmon");
+      els.budgetPercentLabel.classList.remove("text-emerald-700", "text-amber-700", "text-salmon");
+      els.budgetRemainLabel.classList.remove("text-stone-700", "text-amber-700", "text-salmon");
+
+      if (diff < 0) {
+        els.budgetProgressBar.classList.add("bg-salmon");
+        els.budgetPercentLabel.classList.add("text-salmon");
+        els.budgetRemainLabel.classList.add("text-salmon");
+        els.budgetRemainLabel.textContent = `예산 ${formatWon(Math.abs(diff))}원 초과!`;
+        els.budgetStatusText.className = "text-[11px] font-bold text-salmon tabular-nums";
+      } else if (rawPercent >= 80) {
+        els.budgetProgressBar.classList.add("bg-amber-500");
+        els.budgetPercentLabel.classList.add("text-amber-700");
+        els.budgetRemainLabel.classList.add("text-amber-700");
+        els.budgetRemainLabel.textContent = `남은 예산 ${formatWon(diff)}원 (주의)`;
+        els.budgetStatusText.className = "text-[11px] font-bold text-amber-700 tabular-nums";
+      } else {
+        els.budgetProgressBar.classList.add("bg-emerald-500");
+        els.budgetPercentLabel.classList.add("text-emerald-700");
+        els.budgetRemainLabel.classList.add("text-stone-700");
+        els.budgetRemainLabel.textContent = `남은 예산 ${formatWon(diff)}원`;
+        els.budgetStatusText.className = "text-[11px] font-bold text-emerald-700 tabular-nums";
+      }
+    }
+
+    // 2단계: 회차별 촬영 카드 렌더링
+    function renderScanHistory() {
+      if (scanHistory.length === 0) {
+        els.scanHistoryContainer.innerHTML = `
+          <div class="rounded-xl border border-dashed border-stone-200 bg-cream p-4 text-center text-xs text-stone-500 leading-relaxed">
+            아직 촬영한 접시 기록이 없어요.<br />
+            6~7장씩 쌓일 때마다 위 버튼으로 접시 사진을 올려 누적해 보세요!
+          </div>
+        `;
+        return;
+      }
+
+      els.scanHistoryContainer.innerHTML = scanHistory
+        .map((scan, index) => {
+          let roundPlates = 0;
+          let roundPrice = 0;
+
+          scan.items.forEach((item) => {
+            const plate = findPlateById(item.plateId);
+            if (!plate) return;
+            roundPlates += item.count;
+            roundPrice += item.count * plate.price;
+          });
+
+          const existingIds = new Set(scan.items.map((it) => it.plateId));
+          const missingPlates = menuPrices.filter((p) => !existingIds.has(p.id));
+
+          const itemsHtml = scan.items
+            .map((item) => {
+              const plate = findPlateById(item.plateId);
+              if (!plate) return "";
+
+              const needsReview = item.confidence === "medium" || item.confidence === "low";
+              const badgeLabel = item.confidence === "low" ? "인식 낮음 · 확인" : "확인 필요";
+
+              return `
+                <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl border ${
+                  needsReview
+                    ? "bg-amber-50/80 border-amber-300"
+                    : "bg-white border-stone-200/80"
+                }">
+                  <div class="flex items-start gap-2 min-w-0">
+                    <span
+                      class="w-4 h-4 mt-0.5 rounded-full border border-black/15 shrink-0"
+                      style="background-color: ${escapeHtml(normalizeHex(plate.hex_color))};"
+                    ></span>
+                    <div class="min-w-0">
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <span class="text-xs font-bold text-charcoal">${escapeHtml(plate.color_name)}</span>
+                        ${
+                          needsReview
+                            ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-800 text-[10px] font-bold">⚠️ ${badgeLabel}</span>`
+                            : ""
+                        }
+                      </div>
+                      <p class="text-[11px] text-stone-500 tabular-nums mt-0.5">
+                        개당 ${formatWon(plate.price)}원 · 소계 <strong class="text-stone-700">${formatWon(plate.price * item.count)}원</strong>
+                      </p>
+                      ${
+                        needsReview && item.reviewReason
+                          ? `<p class="text-[11px] text-amber-800 mt-1 leading-snug">↳ ${escapeHtml(item.reviewReason)}</p>`
+                          : ""
+                      }
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      class="scan-minus-btn w-8 h-8 rounded-lg border border-stone-200 bg-white hover:bg-sand text-charcoal font-bold text-base inline-flex items-center justify-center active:scale-90 transition"
+                      data-scan-id="${escapeHtml(scan.id)}"
+                      data-plate-id="${escapeHtml(plate.id)}"
+                      aria-label="${escapeHtml(plate.color_name)} 1개 빼기"
+                    >
+                      −
+                    </button>
+                    <span class="w-6 text-center text-sm font-extrabold text-charcoal tabular-nums">${item.count}</span>
+                    <button
+                      type="button"
+                      class="scan-plus-btn w-8 h-8 rounded-lg border border-stone-200 bg-white hover:bg-sand text-charcoal font-bold text-base inline-flex items-center justify-center active:scale-90 transition"
+                      data-scan-id="${escapeHtml(scan.id)}"
+                      data-plate-id="${escapeHtml(plate.id)}"
+                      aria-label="${escapeHtml(plate.color_name)} 1개 더하기"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              `;
+            })
+            .join("");
+
+          const unmatchedHtml =
+            scan.unmatchedPlates && scan.unmatchedPlates.length > 0
+              ? `
+                <div class="mx-3 mb-3 p-2.5 rounded-xl bg-white border border-dashed border-stone-300 text-xs text-stone-600">
+                  <p class="font-bold text-charcoal mb-1.5">🧩 메뉴판 외 특수 / 미분류 접시</p>
+                  <div class="space-y-1.5">
+                    ${scan.unmatchedPlates
+                      .map(
+                        (u) => `
+                        <div class="flex items-center justify-between gap-2">
+                          <span class="text-[11px] leading-snug">• ${escapeHtml(u.description)} (${u.count}개)</span>
+                          <button
+                            type="button"
+                            class="unmatched-register-btn shrink-0 px-2 py-1 rounded-lg bg-sand hover:bg-salmon-soft hover:text-salmon border border-stone-200 text-[11px] font-bold text-charcoal transition"
+                            data-unmatched-name="${escapeHtml(u.description)}"
+                          >
+                            사이드/특수 접시로 추가 →
+                          </button>
+                        </div>
+                      `
+                      )
+                      .join("")}
+                  </div>
+                </div>
+              `
+              : "";
+
+          const addMissingHtml =
+            missingPlates.length > 0
+              ? `
+                <div class="px-3 pb-3 flex items-center gap-1.5">
+                  <select
+                    class="scan-add-select flex-1 h-9 px-2.5 rounded-lg border border-stone-200 bg-white text-xs text-stone-700 focus:outline-none focus:border-salmon"
+                    data-scan-id="${escapeHtml(scan.id)}"
+                    aria-label="이 회차에 추가할 접시 선택"
+                  >
+                    ${missingPlates
+                      .map(
+                        (p) =>
+                          `<option value="${escapeHtml(p.id)}">${escapeHtml(p.color_name)} (${formatWon(p.price)}원)</option>`
+                      )
+                      .join("")}
+                  </select>
+                  <button
+                    type="button"
+                    class="scan-add-plate-btn h-9 px-3 rounded-lg bg-sand hover:bg-stone-200 border border-stone-200 text-xs font-bold text-charcoal shrink-0 active:scale-95 transition"
+                    data-scan-id="${escapeHtml(scan.id)}"
+                  >
+                    + 추가
+                  </button>
+                </div>
+              `
+              : "";
+
+          return `
+            <article class="rounded-2xl border border-stone-200/90 bg-cream/70 overflow-hidden">
+              <div class="flex items-center justify-between gap-2.5 p-3 bg-sand/75 border-b border-stone-200/80">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  ${
+                    scan.photoUrl
+                      ? `<img src="${scan.photoUrl}" alt="${index + 1}차 촬영 접시" class="w-11 h-11 rounded-lg object-cover border border-stone-300 shrink-0 bg-stone-200" />`
+                      : `<div class="w-11 h-11 rounded-lg bg-white border border-stone-200 flex items-center justify-center text-lg shrink-0" aria-hidden="true">🍽️</div>`
+                  }
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-sm font-extrabold text-charcoal">${index + 1}차 촬영</span>
+                      <span class="text-[11px] text-stone-500">${escapeHtml(scan.time)}</span>
+                    </div>
+                    <p class="text-xs font-bold text-salmon tabular-nums">
+                      ${roundPlates}접시 · ${formatWon(roundPrice)}원
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  class="scan-delete-btn shrink-0 px-2.5 py-1.5 rounded-lg bg-white border border-red-200 text-[11px] font-bold text-red-600 hover:bg-red-50 active:scale-95 transition"
+                  data-scan-id="${escapeHtml(scan.id)}"
+                >
+                  이 회차 삭제
+                </button>
+              </div>
+
+              ${
+                scan.warning
+                  ? `
+                    <div class="flex items-start gap-2 px-3 py-2.5 bg-orange-50 border-b border-orange-200 text-xs text-orange-900 leading-snug">
+                      <span class="shrink-0 mt-0.5" aria-hidden="true">⚠️</span>
+                      <span>${escapeHtml(scan.warning)}</span>
+                    </div>
+                  `
+                  : ""
+              }
+
+              <div class="p-3 space-y-2">
+                ${
+                  itemsHtml ||
+                  `<p class="text-center text-xs text-stone-500 py-2">인식된 기준 접시가 없어요. 아래에서 접시를 직접 추가할 수 있어요.</p>`
+                }
+              </div>
+
+              ${unmatchedHtml}
+              ${addMissingHtml}
+            </article>
+          `;
+        })
+        .join("");
+    }
+
+    // 3단계 계산서 + 더치페이 + 예산 게이지 + 하단 고정 바 렌더링
+    function renderSummaryAndReceipt() {
+      const totals = calculateTotals();
+
+      // 2단계 예산 게이지 동기화
+      renderBudgetGauge(totals.grandTotal);
+
+      // 색상별 최종 합산 테이블
+      if (totals.aggregatedRows.length === 0) {
+        els.receiptTableContainer.innerHTML = `
+          <div class="rounded-xl border border-dashed border-stone-200 bg-cream p-4 text-center text-xs text-stone-500">
+            2단계에서 접시를 촬영하면 여기에 색상별 총 개수와 금액표가 자동으로 정리돼요.
+          </div>
+        `;
+      } else {
+        els.receiptTableContainer.innerHTML = `
+          <div class="overflow-x-auto rounded-xl border border-stone-200">
+            <table class="w-full text-xs border-collapse">
+              <thead>
+                <tr class="bg-sand/80 text-stone-600 border-b border-stone-200">
+                  <th class="text-left font-bold py-2.5 px-3">접시 종류</th>
+                  <th class="text-right font-bold py-2.5 px-2">단가</th>
+                  <th class="text-center font-bold py-2.5 px-2">개수</th>
+                  <th class="text-right font-bold py-2.5 px-3">소계</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-stone-100 bg-white">
+                ${totals.aggregatedRows
+                  .map(
+                    (row) => `
+                    <tr>
+                      <td class="py-2.5 px-3">
+                        <div class="flex items-center gap-2">
+                          <span class="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0" style="background-color: ${escapeHtml(normalizeHex(row.plate.hex_color))};"></span>
+                          <span class="font-semibold text-charcoal">${escapeHtml(row.plate.color_name)}</span>
+                        </div>
+                      </td>
+                      <td class="py-2.5 px-2 text-right tabular-nums text-stone-500">${formatWon(row.plate.price)}원</td>
+                      <td class="py-2.5 px-2 text-center tabular-nums font-bold text-charcoal">${row.count}장</td>
+                      <td class="py-2.5 px-3 text-right tabular-nums font-extrabold text-charcoal">${formatWon(row.subtotal)}원</td>
+                    </tr>
+                  `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      // 사이드 메뉴 / 추가 항목 리스트
+      if (sideItems.length === 0) {
+        els.sideItemsContainer.innerHTML = "";
+      } else {
+        els.sideItemsContainer.innerHTML = sideItems
+          .map(
+            (item) => `
+            <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-cream border border-stone-200/80 text-xs">
+              <span class="font-semibold text-charcoal truncate">${escapeHtml(item.name)}</span>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="font-bold text-charcoal tabular-nums">${formatWon(item.price)}원</span>
+                <button
+                  type="button"
+                  class="side-delete-btn w-6 h-6 rounded-md text-stone-400 hover:bg-red-50 hover:text-red-600 inline-flex items-center justify-center font-bold transition"
+                  data-side-id="${escapeHtml(item.id)}"
+                  aria-label="${escapeHtml(item.name)} 삭제"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          `
+          )
+          .join("");
+      }
+
+      // 1/N 더치페이 카드 업데이트
+      els.splitCountDisplay.textContent = `${splitCount}명`;
+      if (splitCount === 1 || totals.grandTotal === 0) {
+        els.splitPerPersonMain.textContent = `${formatWon(totals.grandTotal)}원`;
+        els.splitRemainderDetail.classList.add("hidden");
+      } else if (totals.remainder === 0) {
+        els.splitPerPersonMain.textContent = `${formatWon(totals.basePerPerson)}원`;
+        els.splitRemainderDetail.textContent = `${splitCount}명 정확히 나눠 떨어져요`;
+        els.splitRemainderDetail.classList.remove("hidden");
+      } else {
+        els.splitPerPersonMain.textContent = `약 ${formatWon(totals.ceilPerPerson)}원`;
+        els.splitRemainderDetail.textContent = `정확히 ${formatWon(totals.basePerPerson)}원씩 + 나머지 ${formatWon(totals.remainder)}원 (1명 ${formatWon(totals.basePerPerson + totals.remainder)}원)`;
+        els.splitRemainderDetail.classList.remove("hidden");
+      }
+
+      // 최종 요약 박스
+      els.summaryPlateCount.textContent = totals.totalPlateCount;
+      els.summaryPlatePrice.textContent = `${formatWon(totals.totalPlatePrice)}원`;
+      els.summarySideCount.textContent = totals.totalSideCount;
+      els.summarySidePrice.textContent = `${formatWon(totals.totalSidePrice)}원`;
+      els.summaryGrandTotal.textContent = `${formatWon(totals.grandTotal)}원`;
+
+      // 하단 고정 요약 바
+      els.stickyPlateCount.textContent = `총 ${totals.totalPlateCount}접시`;
+      if (splitCount > 1 && totals.grandTotal > 0) {
+        els.stickyPerPersonBadge.textContent = `1인 ${formatWon(totals.ceilPerPerson)}원 (${splitCount}명)`;
+        els.stickyPerPersonBadge.classList.remove("hidden");
+      } else {
+        els.stickyPerPersonBadge.classList.add("hidden");
+      }
+
+      if (menuPrices.length === 0) {
+        els.stickySubInfo.textContent = "메뉴판을 등록하거나 단골 가게를 선택해 주세요";
+      } else if (totals.totalSideCount > 0) {
+        els.stickySubInfo.textContent = `촬영 ${scanHistory.length}회 · 추가 항목 ${totals.totalSideCount}개 포함`;
+      } else {
+        els.stickySubInfo.textContent = `촬영 ${scanHistory.length}회 누적 합산`;
+      }
+      els.stickyTotalPrice.textContent = `${formatWon(totals.grandTotal)}원`;
+    }
+
+    // 전체 화면 갱신 + 현재 식사 세션 자동 저장
+    function renderAll(shouldSave = true) {
+      renderSavedStores();
+      renderMenuPrices();
+      renderScanHistory();
+      renderSummaryAndReceipt();
+      if (shouldSave) saveCurrentSession();
+    }
+
+    /* =========================================================================
+       [13. 카톡 공유용 정산 텍스트 생성 및 클립보드 복사]
+       iFrame 환경에서도 안정적으로 작동하도록 document.execCommand('copy')를 사용합니다.
+    ========================================================================= */
+    function buildKakaoReceiptText() {
+      const totals = calculateTotals();
+      const today = new Date();
+      const dateStr = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, "0")}.${String(today.getDate()).padStart(2, "0")}`;
+      const titlePrefix = storeName.trim() ? `[${storeName.trim()}] ` : "";
+
+      const lines = [];
+      lines.push(`🍣 ${titlePrefix}회전초밥 정산 내역 (${dateStr})`);
+      lines.push("──────────────────");
+
+      if (totals.aggregatedRows.length > 0) {
+        lines.push(`🍽️ 접시 내역 (총 ${totals.totalPlateCount}접시)`);
+        totals.aggregatedRows.forEach((row) => {
+          lines.push(`• ${row.plate.color_name} (${formatWon(row.plate.price)}원) × ${row.count}접시 = ${formatWon(row.subtotal)}원`);
+        });
+      } else {
+        lines.push("🍽️ 접시 내역: 없음");
+      }
+
+      if (sideItems.length > 0) {
+        lines.push("");
+        lines.push(`🍜 사이드 · 추가 항목 (${sideItems.length}개)`);
+        sideItems.forEach((item) => {
+          lines.push(`• ${item.name} = ${formatWon(item.price)}원`);
+        });
+      }
+
+      lines.push("──────────────────");
+      lines.push(`💰 총 결제 금액: ${formatWon(totals.grandTotal)}원`);
+
+      if (splitCount > 1 && totals.grandTotal > 0) {
+        if (totals.remainder === 0) {
+          lines.push(`👥 ${splitCount}명 1/N 더치페이: 1인당 ${formatWon(totals.basePerPerson)}원`);
+        } else {
+          lines.push(`👥 ${splitCount}명 1/N 더치페이: 1인당 약 ${formatWon(totals.ceilPerPerson)}원`);
+          lines.push(`   (정확히 ${formatWon(totals.basePerPerson)}원씩 / 나머지 ${formatWon(totals.remainder)}원)`);
+        }
+      }
+
+      return lines.join("\n");
+    }
+
+    function copyTextToClipboard(text) {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.top = "-9999px";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      textarea.setSelectionRange(0, text.length);
+
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch (err) {
+        copied = false;
+      } finally {
+        document.body.removeChild(textarea);
+      }
+      return copied;
+    }
+
+    /* =========================================================================
+       [14. 이벤트 리스너 연결]
+    ========================================================================= */
+
+    // 전역 오류 배너 및 복구 배너 닫기
+    els.closeGlobalErrorBtn.addEventListener("click", hideGlobalError);
+    els.closeRestoredBannerBtn.addEventListener("click", () => {
+      els.sessionRestoredBanner.classList.add("hidden");
+      els.sessionRestoredBanner.classList.remove("flex");
+    });
+
+    // --- 설정(API 키) 모달 ---
+    function openSettingsModal() {
+      updateApiKeyStatusUI();
+      els.apiKeyInput.value = getSavedUserApiKey();
+      els.apiKeyInput.type = "password";
+      els.toggleApiKeyVisBtn.textContent = "보기";
+      els.settingsModal.classList.remove("hidden");
+    }
+
+    function closeSettingsModal() {
+      els.settingsModal.classList.add("hidden");
+    }
+
+    els.openSettingsModalBtn.addEventListener("click", openSettingsModal);
+    els.closeSettingsModalBtn.addEventListener("click", closeSettingsModal);
+    els.settingsModal.addEventListener("click", (e) => {
+      if (e.target === els.settingsModal) closeSettingsModal();
+    });
+
+    els.toggleApiKeyVisBtn.addEventListener("click", () => {
+      const isHidden = els.apiKeyInput.type === "password";
+      els.apiKeyInput.type = isHidden ? "text" : "password";
+      els.toggleApiKeyVisBtn.textContent = isHidden ? "숨김" : "보기";
+    });
+
+    els.saveApiKeyBtn.addEventListener("click", () => {
+      const keyVal = els.apiKeyInput.value.trim();
+      try {
+        if (keyVal) {
+          localStorage.setItem(STORAGE_KEYS.API_KEY, keyVal);
+          showToast("사용자 API 키를 저장했어요!");
+        } else {
+          localStorage.removeItem(STORAGE_KEYS.API_KEY);
+          showToast("미리보기 기본 키 모드로 전환했어요.");
+        }
+        updateApiKeyStatusUI();
+        closeSettingsModal();
+      } catch (err) {
+        showToast("브라우저 저장소에 키를 저장하지 못했어요.");
+      }
+    });
+
+    els.deleteApiKeyBtn.addEventListener("click", () => {
+      try {
+        localStorage.removeItem(STORAGE_KEYS.API_KEY);
+      } catch (err) {
+        // 무시
+      }
+      els.apiKeyInput.value = "";
+      updateApiKeyStatusUI();
+      showToast("저장된 사용자 API 키를 삭제했어요.");
+    });
+
+    // --- 새 식사 초기화 모달 (단골 가게·API 키 절대 삭제 안 함) ---
+    function openResetModal() {
+      els.resetModal.classList.remove("hidden");
+    }
+
+    function closeResetModal() {
+      els.resetModal.classList.add("hidden");
+    }
+
+    els.openResetModalBtn.addEventListener("click", openResetModal);
+    els.cancelResetBtn.addEventListener("click", closeResetModal);
+    els.resetModal.addEventListener("click", (e) => {
+      if (e.target === els.resetModal) closeResetModal();
+    });
+
+    els.confirmResetBtn.addEventListener("click", () => {
+      revokeIfBlobUrl(menuPhotoUrl);
+      scanHistory.forEach((scan) => revokeIfBlobUrl(scan.photoUrl));
+
+      storeName = "";
+      menuPrices = [];
+      menuNotes = [];
+      menuImageBase64 = null;
+      menuImageMimeType = null;
+      menuCompactBase64 = null;
+      menuCompactMimeType = null;
+      menuPhotoUrl = null;
+      scanHistory = [];
+      sideItems = [];
+      budget = 0;
+      splitCount = 1;
+
+      els.storeNameInput.value = "";
+      els.budgetInput.value = "";
+      els.sessionRestoredBanner.classList.add("hidden");
+      els.sessionRestoredBanner.classList.remove("flex");
+
+      try {
+        localStorage.removeItem(STORAGE_KEYS.SESSION);
+      } catch (err) {
+        // 무시
+      }
+
+      hideGlobalError();
+      closeResetModal();
+      renderAll(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      showToast("새 식사를 시작할 준비가 됐어요! (단골 가게는 안전하게 유지됨)");
+    });
+
+    // --- 1단계: 가게 이름 입력 & 단골 가게 저장/불러오기/삭제 ---
+    els.storeNameInput.addEventListener("input", (e) => {
+      storeName = e.target.value;
+      els.headerStatusSub.textContent = storeName.trim()
+        ? `현재 가게: ${storeName.trim()}`
+        : "메뉴판 학습 · 6~7장 분할 촬영";
+      renderSavedStores();
+      saveCurrentSession();
+    });
+
+    els.saveStoreBtn.addEventListener("click", () => {
+      const name = els.storeNameInput.value.trim();
+      if (!name) {
+        showToast("저장할 가게 이름을 입력해 주세요! (예: 갓덴스시)");
+        els.storeNameInput.focus();
+        return;
+      }
+      if (menuPrices.length === 0) {
+        showToast("먼저 메뉴판 사진을 올리거나 접시 가격표를 등록해 주세요.");
+        return;
+      }
+
+      storeName = name;
+
+      // 같은 이름의 단골 가게가 이미 있으면 덮어쓰기, 없으면 새로 추가
+      const existingIdx = savedStores.findIndex((s) => s.name.trim() === name);
+      const refBase64 = menuCompactBase64 || menuImageBase64 || null;
+      const refMime = menuCompactMimeType || menuImageMimeType || (refBase64 ? "image/jpeg" : null);
+
+      const newStoreRecord = {
+        id: existingIdx >= 0 ? savedStores[existingIdx].id : "store_" + Date.now(),
+        name,
+        plates: menuPrices.map((p) => ({ ...p })),
+        notes: [...menuNotes],
+        refImageBase64: refBase64,
+        refImageMimeType: refMime,
+        savedAt: Date.now()
+      };
+
+      const prevStoresBackup = savedStores.map((s) => ({ ...s }));
+      if (existingIdx >= 0) {
+        savedStores[existingIdx] = newStoreRecord;
+      } else {
+        savedStores.unshift(newStoreRecord);
+      }
+
+      // localStorage 용량 초과(QuotaExceededError) 시 사진만 빼고 가격표만 안전하게 저장
+      try {
+        persistSavedStoresToStorage();
+        renderAll();
+        showToast(
+          refBase64
+            ? `'${name}' 가격표와 기준 사진을 단골 가게에 저장했어요!`
+            : `'${name}' 가격표를 단골 가게에 저장했어요!`
+        );
+      } catch (err) {
+        // 용량 부족 폴백 처리
+        const lightRecord = {
+          ...newStoreRecord,
+          refImageBase64: null,
+          refImageMimeType: null
+        };
+        if (existingIdx >= 0) {
+          savedStores[existingIdx] = lightRecord;
+        } else {
+          savedStores[0] = lightRecord;
+        }
+
+        try {
+          persistSavedStoresToStorage();
+          renderAll();
+          showToast(`저장 공간이 부족해 사진은 빼고 '${name}' 가격표만 저장했어요.`);
+        } catch (err2) {
+          savedStores = prevStoresBackup;
+          showGlobalError("단골 가게 저장 실패", "브라우저 저장 공간이 가득 찼어요. 사용하지 않는 단골 가게를 삭제한 뒤 다시 시도해 주세요.");
+        }
+      }
+    });
+
+    // 단골 가게 탭(불러오기) 및 X(삭제)
+    els.savedStoresContainer.addEventListener("click", (e) => {
+      const deleteBtn = e.target.closest(".delete-store-btn");
+      if (deleteBtn) {
+        e.stopPropagation();
+        const targetId = deleteBtn.dataset.storeId;
+        const targetStore = savedStores.find((s) => s.id === targetId);
+        savedStores = savedStores.filter((s) => s.id !== targetId);
+        try {
+          persistSavedStoresToStorage();
+        } catch (err) {
+          // 무시
+        }
+        renderSavedStores();
+        if (targetStore) showToast(`'${targetStore.name}'을(를) 단골 목록에서 삭제했어요.`);
+        return;
+      }
+
+      const chip = e.target.closest(".saved-store-chip");
+      if (!chip) return;
+      const store = savedStores.find((s) => s.id === chip.dataset.storeId);
+      if (!store) return;
+
+      revokeIfBlobUrl(menuPhotoUrl);
+
+      storeName = store.name;
+      els.storeNameInput.value = store.name;
+      menuPrices = store.plates.map((p) => ({
+        ...p,
+        hex_color: normalizeHex(p.hex_color || p.color_hex)
+      }));
+      menuNotes = Array.isArray(store.notes) ? [...store.notes] : [];
+
+      if (store.refImageBase64) {
+        menuImageBase64 = store.refImageBase64;
+        menuImageMimeType = store.refImageMimeType || "image/jpeg";
+        menuCompactBase64 = store.refImageBase64;
+        menuCompactMimeType = store.refImageMimeType || "image/jpeg";
+        menuPhotoUrl = `data:${menuImageMimeType};base64,${menuImageBase64}`;
+      } else {
+        menuImageBase64 = null;
+        menuImageMimeType = null;
+        menuCompactBase64 = null;
+        menuCompactMimeType = null;
+        menuPhotoUrl = null;
+      }
+
+      hideGlobalError();
+      renderAll();
+      showToast(
+        store.refImageBase64
+          ? `'${store.name}' 가격표와 기준 사진을 불러왔어요!`
+          : `'${store.name}' 가격표(${store.plates.length}종)를 불러왔어요!`
+      );
+    });
+
+    // --- 1단계: 메뉴판 사진 업로드 -> API(1024px) & 단골 저장용(640px) 병렬 리사이즈 ---
+    els.menuPhotoInput.addEventListener("change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+
+      hideGlobalError();
+      showLoading("AI가 메뉴판을 분석하고 있어요...", "빨간·주황 접시까지 빠뜨리지 않고 스캔하는 중입니다.");
+
+      try {
+        revokeIfBlobUrl(menuPhotoUrl);
+        menuPhotoUrl = URL.createObjectURL(file);
+        renderMenuPrices();
+
+        // API 전송용(1024px, 0.75)과 단골 가게 저장용(640px, 0.60)을 동시에 준비
+        const [apiImg, compactImg] = await Promise.all([
+          resizeImageToBase64(file, 1024, 0.75),
+          resizeImageToBase64(file, 640, 0.60)
+        ]);
+
+        menuImageBase64 = apiImg.base64;
+        menuImageMimeType = apiImg.mimeType;
+        menuCompactBase64 = compactImg.base64;
+        menuCompactMimeType = compactImg.mimeType;
+
+        const { plates, notes } = await analyzeMenuWithAI(apiImg.base64, apiImg.mimeType);
+        menuPrices = plates;
+        menuNotes = notes;
+        renderAll();
+
+        const reviewCount = plates.filter((p) => p.confidence !== "high").length;
+        if (reviewCount > 0) {
+          showToast(`접시 ${plates.length}종 인식 완료! 노란 표시 ${reviewCount}개만 확인해 주세요.`);
+        } else {
+          showToast(`메뉴판에서 접시 ${plates.length}종을 정확히 불러왔어요!`);
+        }
+      } catch (err) {
+        const msg =
+          err instanceof SyntaxError
+            ? "AI가 돌려준 가격표 형식을 읽는 중 오류가 발생했어요."
+            : err?.message || "메뉴판 분석에 실패했어요.";
+        showGlobalError("메뉴판 인식에 실패했어요", msg);
+      } finally {
+        hideLoading();
+        els.menuPhotoInput.value = "";
+      }
+    });
+
+    // 샘플 메뉴판 불러오기
+    els.loadSampleMenuBtn.addEventListener("click", () => {
+      hideGlobalError();
+      revokeIfBlobUrl(menuPhotoUrl);
+      menuPhotoUrl = null;
+      menuImageBase64 = null;
+      menuImageMimeType = null;
+      menuCompactBase64 = null;
+      menuCompactMimeType = null;
+      menuNotes = [];
+      menuPrices = SAMPLE_MENU_PLATES.map((p) => ({ ...p }));
+      if (!storeName.trim()) {
+        storeName = "샘플 회전초밥";
+        els.storeNameInput.value = storeName;
+      }
+      renderAll();
+      showToast("샘플 메뉴판 6종을 불러왔어요!");
+    });
+
+    // 접시 종류 수동 추가
+    els.addPlateBtn.addEventListener("click", () => {
+      menuPrices.push({
+        id: "plate_" + Date.now(),
+        color_name: `새 접시 ${menuPrices.length + 1}`,
+        visual_description: "직접 추가한 접시",
+        hex_color: "#E85D4A",
+        price: 3000,
+        confidence: "high"
+      });
+      renderAll();
+      showToast("새 접시 종류를 추가했어요.");
+    });
+
+    // 가격표 직접 수정 (입력 포커스 유지를 위해 1단계 리스트는 유지하고 나머지 갱신)
+    els.plateListContainer.addEventListener("input", (e) => {
+      const row = e.target.closest(".plate-row");
+      if (!row) return;
+      const plate = findPlateById(row.dataset.plateId);
+      if (!plate) return;
+
+      if (e.target.classList.contains("plate-color-input")) {
+        plate.hex_color = normalizeHex(e.target.value);
+      } else if (e.target.classList.contains("plate-name-input")) {
+        plate.color_name = e.target.value;
+        if (plate.confidence !== "high") {
+          plate.confidence = "high";
+          row.classList.remove("bg-amber-50/70", "border-amber-300");
+          row.classList.add("bg-cream/80", "border-stone-200/80");
+          const badge = row.querySelector(".review-badge");
+          if (badge) badge.remove();
+        }
+      } else if (e.target.classList.contains("plate-price-input")) {
+        const parsed = parseInt(e.target.value, 10);
+        plate.price = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
+        if (plate.confidence !== "high") {
+          plate.confidence = "high";
+          row.classList.remove("bg-amber-50/70", "border-amber-300");
+          row.classList.add("bg-cream/80", "border-stone-200/80");
+          const badge = row.querySelector(".review-badge");
+          if (badge) badge.remove();
+        }
+      }
+
+      renderScanHistory();
+      renderSummaryAndReceipt();
+      saveCurrentSession();
+    });
+
+    // 가격표 행 삭제
+    els.plateListContainer.addEventListener("click", (e) => {
+      const delBtn = e.target.closest(".plate-delete-btn");
+      if (!delBtn) return;
+      const targetId = delBtn.closest(".plate-row").dataset.plateId;
+
+      menuPrices = menuPrices.filter((p) => p.id !== targetId);
+      scanHistory.forEach((scan) => {
+        scan.items = scan.items.filter((it) => it.plateId !== targetId);
+      });
+      renderAll();
+      showToast("접시 종류를 삭제했어요.");
+    });
+
+    // --- 2단계: 목표 예산 설정 ---
+    els.budgetInput.addEventListener("input", (e) => {
+      const parsed = parseInt(e.target.value, 10);
+      budget = Number.isNaN(parsed) || parsed < 0 ? 0 : parsed;
+      renderSummaryAndReceipt();
+      saveCurrentSession();
+    });
+
+    document.querySelectorAll(".budget-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const addAmount = parseInt(chip.dataset.add, 10) || 0;
+        budget = Math.max(0, budget + addAmount);
+        els.budgetInput.value = String(budget);
+        renderSummaryAndReceipt();
+        saveCurrentSession();
+        showToast(`목표 예산을 ${formatWon(budget)}원으로 설정했어요.`);
+      });
+    });
+
+    els.clearBudgetBtn.addEventListener("click", () => {
+      budget = 0;
+      els.budgetInput.value = "";
+      renderSummaryAndReceipt();
+      saveCurrentSession();
+      showToast("목표 예산을 해제했어요.");
+    });
+
+    // --- 2단계: 빈 접시 사진 업로드 -> 기준 메뉴판 + 빈 접시 2장 동시 전송 ---
+    els.platePhotoInput.addEventListener("change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+
+      if (menuPrices.length === 0) {
+        showToast("먼저 1단계에서 메뉴판 가격표를 등록해 주세요!");
+        document.getElementById("step-1").scrollIntoView({ behavior: "smooth" });
+        els.platePhotoInput.value = "";
+        return;
+      }
+
+      hideGlobalError();
+      showLoading(
+        "메뉴판과 접시를 대조하며 세고 있어요...",
+        menuImageBase64
+          ? "저장된 기준 메뉴판과 방금 찍은 접시를 나란히 비교 중입니다."
+          : "기준 가격표와 빈 접시를 대조하며 아래부터 하나씩 세고 있습니다."
+      );
+
+      const photoUrl = URL.createObjectURL(file);
+
+      try {
+        const { base64, mimeType } = await resizeImageToBase64(file, 1024, 0.75);
+        const result = await analyzePlatesWithAI(base64, mimeType);
+
+        scanHistory.push({
+          id: "scan_" + Date.now(),
+          time: getTimeLabel(),
+          photoUrl,
+          warning: result.warning,
+          stacks: result.stacks,
+          unmatchedPlates: result.unmatchedPlates,
+          items: result.counts
+        });
+
+        renderAll();
+
+        const addedCount = result.counts.reduce((sum, it) => sum + it.count, 0);
+        const unmatchedCount = result.unmatchedPlates.reduce((sum, u) => sum + u.count, 0);
+
+        if (addedCount === 0 && unmatchedCount === 0) {
+          showToast("접시를 찾지 못했어요. 45° 위에서 다시 찍거나 아래에서 추가해 주세요.");
+        } else if (unmatchedCount > 0) {
+          showToast(`${scanHistory.length}차 촬영 완료! (${addedCount}접시 + 미분류 ${unmatchedCount}개)`);
+        } else {
+          showToast(`${scanHistory.length}차 촬영 완료! (${addedCount}접시 추가됨)`);
+        }
+      } catch (err) {
+        revokeIfBlobUrl(photoUrl);
+        const msg =
+          err instanceof SyntaxError
+            ? "AI가 돌려준 접시 개수 형식을 읽지 못했어요."
+            : err?.message || "접시 사진 분석에 실패했어요.";
+        showGlobalError("접시 인식에 실패했어요", msg);
+      } finally {
+        hideLoading();
+        els.platePhotoInput.value = "";
+      }
+    });
+
+    // 테스트용 6장 추가 버튼 (사진 없이도 UI 흐름 검증)
+    els.mockScanBtn.addEventListener("click", () => {
+      if (menuPrices.length === 0) {
+        menuPrices = SAMPLE_MENU_PLATES.map((p) => ({ ...p }));
+        if (!storeName.trim()) {
+          storeName = "샘플 회전초밥";
+          els.storeNameInput.value = storeName;
+        }
+      }
+
+      const first = menuPrices[0];
+      const second = menuPrices[1] || first;
+      const third = menuPrices[2] || first;
+      const isFirstRound = scanHistory.length === 0;
+
+      const mockItems = [];
+      if (first) {
+        mockItems.push({ plateId: first.id, count: 3, confidence: "high", reviewReason: "" });
+      }
+      if (second && second.id !== first.id) {
+        mockItems.push({
+          plateId: second.id,
+          count: 2,
+          confidence: isFirstRound ? "medium" : "high",
+          reviewReason: isFirstRound ? "조명 반사로 색이 약간 흐려 확인이 필요해요" : ""
+        });
+      }
+      if (third && third.id !== first.id && third.id !== second.id) {
+        mockItems.push({ plateId: third.id, count: 1, confidence: "high", reviewReason: "" });
+      }
+
+      scanHistory.push({
+        id: "scan_" + Date.now(),
+        time: getTimeLabel(),
+        photoUrl: null,
+        warning: isFirstRound
+          ? "테스트 예시: 노란 '확인 필요' 항목은 −/+ 버튼을 한 번 누르면 확인 완료 처리돼요."
+          : null,
+        stacks: [],
+        unmatchedPlates: isFirstRound
+          ? [{ description: "검정 사각 특수 접시 (테스트 예시)", count: 1 }]
+          : [],
+        items: mockItems
+      });
+
+      renderAll();
+      showToast(`${scanHistory.length}차 테스트 촬영(6접시)이 추가됐어요.`);
+    });
+
+    // 회차별 카드 내부 버튼 (-/+, 누락 접시 추가, 미분류 등록, 회차 삭제)
+    els.scanHistoryContainer.addEventListener("click", (e) => {
+      const deleteScanBtn = e.target.closest(".scan-delete-btn");
+      if (deleteScanBtn) {
+        const scanId = deleteScanBtn.dataset.scanId;
+        const target = scanHistory.find((s) => s.id === scanId);
+        if (target) revokeIfBlobUrl(target.photoUrl);
+        scanHistory = scanHistory.filter((s) => s.id !== scanId);
+        renderAll();
+        showToast("선택한 촬영 회차를 삭제했어요.");
+        return;
+      }
+
+      const minusBtn = e.target.closest(".scan-minus-btn");
+      const plusBtn = e.target.closest(".scan-plus-btn");
+      if (minusBtn || plusBtn) {
+        const btn = minusBtn || plusBtn;
+        const scan = scanHistory.find((s) => s.id === btn.dataset.scanId);
+        if (!scan) return;
+        const item = scan.items.find((it) => it.plateId === btn.dataset.plateId);
+        if (!item) return;
+
+        item.count = minusBtn ? Math.max(0, item.count - 1) : item.count + 1;
+        if (item.confidence !== "high") {
+          item.confidence = "high";
+          item.reviewReason = "";
+        }
+
+        renderAll();
+        return;
+      }
+
+      const addBtn = e.target.closest(".scan-add-plate-btn");
+      if (addBtn) {
+        const scanId = addBtn.dataset.scanId;
+        const scan = scanHistory.find((s) => s.id === scanId);
+        const selectEl = els.scanHistoryContainer.querySelector(
+          `.scan-add-select[data-scan-id="${scanId}"]`
+        );
+        if (!scan || !selectEl || !selectEl.value) return;
+
+        scan.items.push({
+          plateId: selectEl.value,
+          count: 1,
+          confidence: "high",
+          reviewReason: ""
+        });
+        renderAll();
+        showToast("해당 회차에 접시 1장을 추가했어요.");
+        return;
+      }
+
+      const unmatchedBtn = e.target.closest(".unmatched-register-btn");
+      if (unmatchedBtn) {
+        els.sideNameInput.value = unmatchedBtn.dataset.unmatchedName || "특수 접시";
+        els.sidePriceInput.value = "";
+        document.getElementById("step-3").scrollIntoView({ behavior: "smooth" });
+        setTimeout(() => els.sidePriceInput.focus(), 350);
+        showToast("금액을 입력하고 추가 버튼을 눌러주세요!");
+      }
+    });
+
+    // --- 3단계: 사이드 메뉴 추가/삭제, 1/N 더치페이, 카톡 복사 ---
+    document.querySelectorAll(".quick-side-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        els.sideNameInput.value = chip.dataset.name || "";
+        els.sidePriceInput.value = chip.dataset.price || "";
+        els.sidePriceInput.focus();
+      });
+    });
+
+    els.sideItemForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = els.sideNameInput.value.trim();
+      const price = parseInt(els.sidePriceInput.value, 10);
+
+      if (!name) {
+        showToast("항목 이름을 입력해 주세요.");
+        els.sideNameInput.focus();
+        return;
+      }
+      if (Number.isNaN(price) || price < 0) {
+        showToast("올바른 금액을 입력해 주세요.");
+        els.sidePriceInput.focus();
+        return;
+      }
+
+      sideItems.push({
+        id: "side_" + Date.now(),
+        name,
+        price
+      });
+
+      els.sideNameInput.value = "";
+      els.sidePriceInput.value = "";
+      renderAll();
+      showToast(`'${name}' 항목을 계산서에 추가했어요.`);
+    });
+
+    els.sideItemsContainer.addEventListener("click", (e) => {
+      const delBtn = e.target.closest(".side-delete-btn");
+      if (!delBtn) return;
+      const sideId = delBtn.dataset.sideId;
+      sideItems = sideItems.filter((item) => item.id !== sideId);
+      renderAll();
+      showToast("추가 항목을 삭제했어요.");
+    });
+
+    els.splitMinusBtn.addEventListener("click", () => {
+      if (splitCount <= 1) return;
+      splitCount -= 1;
+      renderSummaryAndReceipt();
+      saveCurrentSession();
+    });
+
+    els.splitPlusBtn.addEventListener("click", () => {
+      if (splitCount >= 20) return;
+      splitCount += 1;
+      renderSummaryAndReceipt();
+      saveCurrentSession();
+    });
+
+    els.copyReceiptBtn.addEventListener("click", () => {
+      const totals = calculateTotals();
+      if (totals.grandTotal === 0 && totals.totalPlateCount === 0 && sideItems.length === 0) {
+        showToast("복사할 정산 내역이 아직 없어요. 접시를 먼저 추가해 보세요!");
+        return;
+      }
+      const receiptText = buildKakaoReceiptText();
+      const ok = copyTextToClipboard(receiptText);
+      if (ok) {
+        showToast("카톡에 바로 붙여넣을 수 있게 정산 내역을 복사했어요!");
+      } else {
+        showGlobalError("복사에 실패했어요", "브라우저 권한으로 자동 복사가 막혔어요. 다시 한 번 눌러주세요.");
+      }
+    });
+
+    els.jumpReceiptBtn.addEventListener("click", () => {
+      document.getElementById("step-3").scrollIntoView({ behavior: "smooth" });
+    });
+
+    /* =========================================================================
+       [15. 앱 최초 실행 (부팅)]
+       1) API 키 상태 배지 갱신
+       2) 단골 가게 목록 불러오기
+       3) 이전 식사 세션이 있으면 자동 복원 후 안내 표시
+       4) 전체 화면 렌더링
+    ========================================================================= */
+    try {
+      updateApiKeyStatusUI();
+      loadSavedStoresFromStorage();
+      const restored = restoreCurrentSession();
+      renderAll(false);
+
+      if (restored) {
+        els.sessionRestoredBanner.classList.remove("hidden");
+        els.sessionRestoredBanner.classList.add("flex");
+        showToast("이전 식사 기록을 이어서 불러왔어요.");
+      }
+    } catch (initErr) {
+      showGlobalError("화면 초기화 중 오류가 발생했어요", initErr?.message || "새로고침해 주세요.");
+    }
+  </script>
+</body>
+</html>

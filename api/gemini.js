@@ -22,7 +22,7 @@ module.exports = async function handler(req, res) {
     }
 
     // 1순위 모델이 404면 다음 모델로 자동 시도
-    const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
+    const models = ['gemini-3.5-flash-lite', 'gemini-3.5-flash'];
     let lastError = 'AI 응답을 받지 못했습니다.';
     let lastStatus = 502;
 
